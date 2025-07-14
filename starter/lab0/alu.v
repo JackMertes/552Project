@@ -7,10 +7,10 @@
 // you should not attempt to add any registers or pipeline it in Lab 0.
 module alu (
     // Major operation selection.
-    // 3'b000: addition/subtraction
-    // 3'b001: set less than [unsigned]
+    // 3'b000: addition/subtraction if i_sub
+    // 3'b001: set less than signed/unsigned if i_unsigned
     // 3'b010: shift left logical
-    // 3'b011: shift right logical/arithmetic
+    // 3'b011: shift right logical/arithmetic if i_arith
     // 3'b100: exclusive or
     // 3'b101: or
     // 3'b110: and
