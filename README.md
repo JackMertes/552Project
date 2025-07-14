@@ -1,1 +1,1 @@
-# 552Project
+# ECE 552: Computer Architecture
