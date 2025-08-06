@@ -21,7 +21,7 @@ module imm (
     // Because the R-type format does not have an immediate, the output
     // immediate can be treated as a don't-care under this case. It is
     // included for completeness.
-    output wire [31:0] o_imm
+    output wire [31:0] o_immediate
 );
     // Fill in your implementation here.
 endmodule
