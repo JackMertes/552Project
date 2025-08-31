@@ -1,15 +1,16 @@
 # Compiler and tools
-CC      := riscv32-unknown-elf-gcc
+CC      := riscv64-unknown-elf-gcc
 QEMU    := qemu-riscv32
 
 # Compiler and linker flags
-CFLAGS  := -march=rv32gc -mabi=ilp32d -O3 -Wall -Werror
+CFLAGS  := -march=rv32i -mabi=ilp32 -O3 -Wall -Werror
 LDFLAGS := -static
 
 # Sources and target
 SRCS    := umul.s harness.c
 TARGET  := umul
 TEST    := grader.py
+RESULTS := results.json
 
 # Default target
 all: $(TARGET)
@@ -20,7 +21,7 @@ $(TARGET): $(SRCS)
 
 # Clean build artifacts
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(RESULTS)
 
 # Run executable with QEMU (non-default target)
 run: $(TARGET)
