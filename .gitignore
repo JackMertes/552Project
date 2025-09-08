@@ -1,2 +1,10 @@
+# Ignore all files without extensions (crude way to ignore executables)
+*
+!*.*
+!*/
+
 __pycache__/
 build/
+.cache/
+*.out
+results.json
