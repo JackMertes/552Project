@@ -21,5 +21,5 @@
 umul:
     # This dummy code adds the two operands and returns the result.
     # Replace with your implementation.
-    add a0, a0, a1
+    add  a0, a0, a1
     jalr zero, 0(ra)
