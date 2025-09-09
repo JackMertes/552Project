@@ -3,9 +3,9 @@
 
 #define MAXN 1024
 
-uint32_t dot(const size_t len,
-             const uint32_t *const A,
-             const uint32_t *const B);
+uint32_t dot(const uint32_t *const A,
+             const uint32_t *const B,
+             const size_t len);
 
 int main(void) {
     size_t len;
@@ -16,7 +16,7 @@ int main(void) {
     for (size_t i = 0; i < len; i++) scanf("%" PRIu32, &A[i]);
     for (size_t i = 0; i < len; i++) scanf("%" PRIu32, &B[i]);
 
-    const uint32_t result = dot(len, A, B);
+    const uint32_t result = dot(A, B, len);
     printf("%" PRIu32 "\n", result);
 
     return 0;
