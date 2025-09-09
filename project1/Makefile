@@ -6,29 +6,40 @@ QEMU    := qemu-riscv32
 CFLAGS  := -march=rv32i -mabi=ilp32 -O3 -Wall -Werror
 LDFLAGS := -static
 
-# Sources and target
-SRCS    := umul.s harness.c
-TARGET  := umul
-TEST    := grader.py
-RESULTS := results.json
+# Sources and targets
+UMUL_SRCS := umul.s umul_harness.c
+DOT_SRCS  := dot.c dot_harness.c umul.s
+UMUL      := umul
+DOT       := dot
+RESULTS   := results.json
 
-# Default target
-all: $(TARGET)
+# Default target builds both executables
+all: $(UMUL) $(DOT)
 
-# Build everything in one step
-$(TARGET): $(SRCS)
+# Build umul executable
+$(UMUL): $(UMUL_SRCS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
+# Build dot executable
+$(DOT): $(DOT_SRCS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 # Clean build artifacts
 clean:
-	rm -f $(TARGET) $(RESULTS)
+	rm -f $(UMUL) $(DOT) $(RESULTS)
 
-# Run executable with QEMU (non-default target)
-run: $(TARGET)
-	$(QEMU) ./$(TARGET)
+# Run executables with QEMU
+run-umul: $(UMUL)
+	$(QEMU) ./$(UMUL)
 
-# Test with pytest.
-test: $(TARGET)
-	pytest grader.py
+run-dot: $(DOT)
+	$(QEMU) ./$(DOT)
 
-.PHONY: all clean run test
+# Test targets with pytest
+test-umul: $(UMUL)
+	pytest umul.py
+
+test-dot: $(DOT)
+	pytest dot.py
+
+.PHONY: all clean run-umul run-dot test-umul test-dot
