@@ -1,0 +1,26 @@
+# This is currently using an Ubuntu 22.04 Jammy to match the gradescope base image.
+FROM ubuntu:jammy
+
+RUN apt-get update && apt-get upgrade -y
+
+# Basic dependencies.
+RUN apt-get install -y git make python3 python3-pip && apt-get clean
+
+# Python dependencies for toplevel test runner and cocotb.
+COPY requirements.txt /tmp/
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
+
+# Icarus verilog and verilator are used for simulation.
+RUN apt-get install -y iverilog verilator && apt-get clean
+
+# GTKWave is used to view waveforms (not used by autograder).
+ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
+RUN apt-get install -y gtkwave && apt-get clean
+
+# Install QEMU with userspace and RISC-V system emulation support.
+RUN apt-get install -y qemu-user qemu-system-riscv32 && apt-get clean
+
+# Copy RISC-V GCC toolchain and add it to PATH.
+COPY --from=registry.doit.wisc.edu/engr/ece/ece552/wisc25-dist/riscv-gnu-toolchain:2025-08-29 /opt/riscv /opt/riscv
+RUN apt-get install -y libmpc-dev && apt-get clean
+ENV PATH="/opt/riscv/bin:${PATH}"
