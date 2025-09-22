@@ -4,13 +4,17 @@
 // calculations of the processor. It takes two 32-bit operands and outputs
 // a 32 bit result based on the selection operation - addition, comparison,
 // shift, or logical operation. This ALU is a purely combinational block, so
-// you should not attempt to add any registers or pipeline it in Lab 0.
+// you should not attempt to add any registers or pipeline it in phase 3.
 module alu (
     // Major operation selection.
+    // NOTE: In order to simplify instruction decoding in phase 4, both 3'b010
+    // and 3'b011 are used for set less than (they are equivalent).
+    // Unsigned comparison is controlled through the `i_unsigned` signal.
+    //
     // 3'b000: addition/subtraction if `i_sub` asserted
     // 3'b001: shift left logical
-    // 3'b010: set less than
-    // 3'b011: set less than unsigned
+    // 3'b010,
+    // 3'b011: set less than/unsigned if `i_unsigned` asserted
     // 3'b100: exclusive or
     // 3'b101: shift right logical/arithmetic if `i_arith` asserted
     // 3'b110: or
@@ -33,10 +37,10 @@ module alu (
     input  wire [31:0] i_op2,
     // 32-bit output result. Any carry out (from addition) should be ignored.
     output wire [31:0] o_result,
-    // Equality result. This is used externally to determine if a
+    // Equality result. This is used downstream to determine if a
     // branch should be taken.
     output wire        o_eq,
-    // Set less than result. This is used externally to determine if a
+    // Set less than result. This is used downstream to determine if a
     // branch should be taken.
     output wire        o_slt
 );

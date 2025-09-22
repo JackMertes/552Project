@@ -10,7 +10,7 @@ module imm (
     input  wire [31:0] i_inst,
     // Instruction format, determined by the instruction decoder based on the
     // opcode. This is one-hot encoded according to the following format:
-    // [0] R-type
+    // [0] R-type (don't-care, see below)
     // [1] I-type
     // [2] S-type
     // [3] B-type
