@@ -16,7 +16,6 @@ def to_unsigned32(n):
 
 @cocotb.test()
 async def rf_random(dut):
-
     clock = Clock(dut.i_clk, 10, units='ns')  # 100 MHz clock
     cocotb.start_soon(clock.start())
 
@@ -41,7 +40,7 @@ async def rf_random(dut):
         test_vectors.append((i_rs1_raddr, i_rs2_raddr, i_rd_waddr, i_rd_wdata, i_rd_wen))
 
     registers = [0] * 32
-    BYPASS_EN = 0
+    BYPASS_EN = dut.BYPASS_EN.value != 0
     print(f"BYPASS_EN = {BYPASS_EN}")
 
     for i_rs1_raddr, i_rs2_raddr, i_rd_waddr, i_rd_wdata, i_rd_wen in test_vectors:
@@ -77,12 +76,19 @@ async def rf_random(dut):
         assert dut_o_rs2_rdata == expected_rs2, f"RS2 Mismatch: got {hex(dut_o_rs2_rdata)}, expected {hex(expected_rs2)}"
 
 def test_rf():
-    # proj_path = pathlib.Path(__file__).resolve().parent.parent
+    # proj_path = pathlib.Path(__file__).resolve().parent
     proj_path = pathlib.Path("/autograder/submission/")
 
-    runner = util.get_runner(proj_path, "rf")
+    runner = util.get_runner(proj_path, "rf_nobypass")
     runner.test(
-        hdl_toplevel="rf",
+        hdl_toplevel="rf_nobypass",
+        test_module="test_rf",
+        testcase=f"rf_random",
+    )
+
+    runner = util.get_runner(proj_path, "rf_bypass")
+    runner.test(
+        hdl_toplevel="rf_bypass",
         test_module="test_rf",
         testcase=f"rf_random",
     )
