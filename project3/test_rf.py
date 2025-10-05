@@ -1,3 +1,4 @@
+import pytest
 import pathlib
 import cocotb
 from cocotb.triggers import Timer
@@ -75,6 +76,7 @@ async def rf_random(dut):
         assert dut_o_rs1_rdata == expected_rs1, f"RS1 Mismatch: got {hex(dut_o_rs1_rdata)}, expected {hex(expected_rs1)}"
         assert dut_o_rs2_rdata == expected_rs2, f"RS2 Mismatch: got {hex(dut_o_rs2_rdata)}, expected {hex(expected_rs2)}"
 
+@pytest.mark.points(10)
 def test_rf():
     # proj_path = pathlib.Path(__file__).resolve().parent
     proj_path = pathlib.Path("/autograder/submission/")

@@ -127,7 +127,7 @@ async def immediate_decoder_random(dut):
         )
 
 @pytest.mark.name("Immediate decoder: randomized")
-@pytest.mark.points(10)
+@pytest.mark.points(15)
 def test_immediate_decoder(record_property):
     # proj_path = pathlib.Path(__file__).resolve().parent.parent
     proj_path = pathlib.Path("/autograder/submission/")

@@ -224,6 +224,7 @@ async def alu_random(dut):
     await shell_test(dut, vectors)
 
 @pytest.mark.parametrize("vectors", VECTORS)
+@pytest.mark.points(1)
 def test_alu_fixed_op(vectors: list[tuple[int]]):
     # proj_path = pathlib.Path(__file__).resolve().parent.parent
     proj_path = pathlib.Path("/autograder/submission/")
@@ -236,6 +237,7 @@ def test_alu_fixed_op(vectors: list[tuple[int]]):
         extra_env={"VECTORS": str(vectors)}
     )
 
+@pytest.mark.points(10)
 def test_alu_random():
     # proj_path = pathlib.Path(__file__).resolve().parent.parent
     proj_path = pathlib.Path("/autograder/submission/")
