@@ -71,7 +71,60 @@ module hart #(
     // this will immediately reflect the contents of memory at the specified
     // address, for the bytes enabled by the mask. When read enable is not
     // asserted, or for bytes not set in the mask, the value is undefined.
-    input  wire [31:0] i_dmem_rdata
+    input  wire [31:0] i_dmem_rdata,
+	// The output `retire` interface is used to signal to the testbench that
+    // the CPU has completed and retired an instruction. A single cycle
+    // implementation will assert this every cycle; however, a pipelined
+    // implementation that needs to stall (due to internal hazards or waiting
+    // on memory accesses) will not assert the signal on cycles where the
+    // instruction in the writeback stage is not retiring.
+    //
+    // Asserted when an instruction is being retired this cycle. If this is
+    // not asserted, the other retire signals are ignored and may be left invalid.
+    output wire        o_retire_valid,
+    // The 32 bit instruction word of the instrution being retired. This
+    // should be the unmodified instruction word fetched from instruction
+    // memory.
+    output wire [31:0] o_retire_inst,
+    // Asserted if the instruction produced a trap, due to an illegal
+    // instruction, unaligned data memory access, or unaligned instruction
+    // address on a taken branch or jump.
+    output wire        o_retire_trap,
+    // Asserted if the instruction is an `ebreak` instruction used to halt the
+    // processor. This is used for debugging and testing purposes to end
+    // a program.
+    output wire        o_retire_halt,
+    // The first register address read by the instruction being retired. If
+    // the instruction does not read from a register (like `lui`), this
+    // should be 5'd0.
+    output wire [ 4:0] o_retire_rs1_raddr,
+    // The second register address read by the instruction being retired. If
+    // the instruction does not read from a second register (like `addi`), this
+    // should be 5'd0.
+    output wire [ 4:0] o_retire_rs2_raddr,
+    // The first source register data read from the register file (in the
+    // decode stage) for the instruction being retired. If rs1 is 5'd0, this
+    // should also be 32'd0.
+    output wire [31:0] o_retire_rs1_rdata,
+    // The second source register data read from the register file (in the
+    // decode stage) for the instruction being retired. If rs2 is 5'd0, this
+    // should also be 32'd0.
+    output wire [31:0] o_retire_rs2_rdata,
+    // The destination register address written by the instruction being
+    // retired. If the instruction does not write to a register (like `sw`),
+    // this should be 5'd0.
+    output wire [ 4:0] o_retire_rd_waddr,
+    // The destination register data written to the register file in the
+    // writeback stage by this instruction. If rd is 5'd0, this field is
+    // ignored and can be treated as a don't care.
+    output wire [31:0] o_retire_rd_wdata,
+    // The current program counter of the instruction being retired - i.e.
+    // the instruction memory address that the instruction was fetched from.
+    output wire [31:0] o_retire_pc,
+    // the next program counter after the instruction is retired. For most
+    // instructions, this is `o_retire_pc + 4`, but must be the branch or jump
+    // target for *taken* branches and jumps.
+    output wire [31:0] o_retire_next_pc
 
 `ifdef RISCV_FORMAL
     ,`RVFI_OUTPUTS,
