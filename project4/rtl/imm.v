@@ -27,7 +27,7 @@ module imm (
 	
 	//using cases here
 	reg [31:0] imm;
-	always_comb begin
+	always @(*) begin
 		case(1'b1) //one hot
 			i_format[1]: imm = {{21{i_inst[31]}},i_inst[30:20]};
 			i_format[2]: imm = {{21{i_inst[31]}},i_inst[30:25],i_inst[11:7]};

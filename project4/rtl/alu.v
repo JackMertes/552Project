@@ -52,7 +52,7 @@ module alu (
 	
 	//use case statement again
 	reg [31:0] result;
-	always_comb begin
+	always @(*) begin
 		case(i_opsel)
 			3'b000: result = (i_sub) ? i_op1 - i_op2 : i_op1 + i_op2;
 			3'b001: result = i_op1 << i_op2[4:0];
