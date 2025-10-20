@@ -44,7 +44,6 @@ module alu (
     // branch should be taken.
     output wire        o_slt
 );
-
     // Fill in your implementation here.
 	
 	//if 1 is postive and 2 neg then 0 else if 1n and 2p then 1 other wise 1<2
@@ -65,12 +64,7 @@ module alu (
 		endcase
 	end
 
-	//assign Equality
-	assign o_eq = i_op1 == i_op2;
-	assign o_slt = (i_unsigned) ? (i_op1 < i_op2) : signed_slt;
-	assign o_result = result;
-	
-	
+    assign res = (dir) ? s16 : l16;
 endmodule
 
 `default_nettype wire
