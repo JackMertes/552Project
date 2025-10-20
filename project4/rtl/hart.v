@@ -132,8 +132,57 @@ module hart #(
 );
     // Fill in your implementation here.
 	
+	/////////////////////////////////////////
+    //control unit
+	/////////////////////////////////////////
+    wire branch, memRead, memToReg, memWrite, alu_src, jump, lui;
+    wire [1:0] aluOp;
+    wire [5:0] format;
+
+    control_decode ctrl_decode_inst (
+        .i_opcode(i_imem_rdata[6:0]),
+        .o_branch(branch),
+        .o_memRead(memRead),
+        .o_memToReg(memToReg),
+        .o_memWrite(memWrite),
+        .o_aluSrc(alu_src),
+        .o_regWrite(regWrite),
+        .o_jump(jump),
+        .o_aluOp(aluOp),
+        .o_lui(lui),
+        .o_format(format)
+    );
 	
-	
+    //////////////////////////////////////////
+    // ALU Decode
+    //////////////////////////////////////////
+
+    wire [2:0] alu_opsel;
+    wire alu_sub, alu_unsigned, alu_arith;
+
+    ALU_decode alu_decode_inst (
+        .i_aluOp(aluOp),
+        .i_funct3(i_imem_rdata[14:12]),
+        .i_funct7(i_imem_rdata[31:25]),
+        .o_opsel(alu_opsel),
+        .o_sub(alu_sub),
+        .o_unsigned(alu_unsigned),
+        .o_arith(alu_arith)
+    );
+
+   //////////////////////////////////////////
+	// Branch Decode
+	////////////////////////////////////////// 
+
+    wire take_branch;
+    branch_decode branch_decode_inst (
+        .i_slt(alu_slt),
+        .i_eq(alu_eq),
+        .branch(branch),
+        .funct3(i_imem_rdata[14:12]),
+        .take_branch(take_branch)
+    );
+
 	//////////////////////////////////////////
 	//PC
 	//////////////////////////////////////////
@@ -214,13 +263,9 @@ module hart #(
 		.o_eq(alu_eq),
 		.o_slt(alu_slt)
 	);
-	
-	
-    /////////////////////////////////////////
-    //control unit
-	/////////////////////////////////////////
 
-
+    // Branch and jump instruction control
+    assign pc_next = (jump || take_branch) ? (pc_current + full_imm) : (pc_current + 4);
 	
 	
 endmodule
@@ -255,6 +300,7 @@ module control_decode(
     // aluOP is 00 for load/store, 01 for branch, 10 for R-type, 11 for I-type
     output wire [1:0] o_aluOp,
     output wire       o_lui,
+    output wire [5:0] o_format
 )
 
     always(*) begin
@@ -351,6 +397,15 @@ module control_decode(
 
         endcase
     end
+
+    // format output encoding one-hot: R-type, I-type, S-type, B-type, U-type, J-type
+    assign o_format = (i_opcode == 7'b0110011) ? 6'b000001 : // R-type
+                      (i_opcode == 7'b0010011 || i_opcode == 7'b0000011) ? 6'b000010 : // I-type
+                      (i_opcode == 7'b0100011) ? 6'b000100 : // S-type
+                      (i_opcode == 7'b1100011) ? 6'b001000 : // B-type
+                      (i_opcode == 7'b0110111 || i_opcode == 7'b0010111) ? 6'b010000 : // U-type
+                      (i_opcode == 7'b1101111) ? 6'b100000 : // J-type
+                        6'b000000; // default
 
 endmodule
 
