@@ -242,10 +242,6 @@ module hart #(
 	wire [31:0] alu_in1, alu_in2, alu_result;
 	wire alu_eq, alu_slt;
 
-	// ALU control signals from control unit
-	wire [2:0] alu_opsel;
-	wire alu_sub, alu_unsigned, alu_arith;
-
 	// Choose second operand: register or immediate
 	assign alu_in1 = rs1_data;
 	assign alu_in2 = (alu_src) ? imm_out : rs2_data;
@@ -265,8 +261,30 @@ module hart #(
 
     // Branch and jump instruction control
     assign pc_next = (jump || take_branch) ? (pc_current + full_imm) : (pc_current + 4);
-	
-	
+
+
+    // Datamemory hookup
+    assign o_dmem_addr = alu_result; // 
+    assign o_dmem_ren = memRead; //read and write enables
+    assign o_dmem_wen = memWrite;
+    assign o_dmem_wdata = rs2_data;
+
+    // LUI
+    wire [31:0] writeback_data;
+    assign writeback_data = (memToReg) ? i_dmem_rdata :
+                     (lui) ? {full_imm[31:12], 12'b0} :
+                     alu_result;
+    assign rd_data = (jump) ? pc_current + 4 : writeback_data;
+
+    // retire interface
+    assign o_retire_valid     = 1'b1; // single cycle, always valid
+    assign o_retire_inst      = i_imem_rdata;
+    assign o_retire_trap      = 1'b0; // no traps in single cycle
+    assign o_retire_halt      = (i_imem_rdata == 32'h00100073); // ebreak instruction
+    assign o_retire_rs1_raddr = rs1;
+    assign o_retire_rs2_raddr = rs2;
+    assign o_retire_rs1_rdata = rs1_data;
+
 endmodule
 
 module branch_decode (
