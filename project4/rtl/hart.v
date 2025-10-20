@@ -133,4 +133,230 @@ module hart #(
     // Fill in your implementation here.
 endmodule
 
+module branch_decode (
+    input i_slt,
+    input i_eq,
+    input branch,
+    input [2:0] funct3,
+    output take_branch
+)
+    assign take_branch = (branch && ((funct3 == 3'b000 && i_eq) || //beq
+                                     (funct3 == 3'b001 && !i_eq) || //bne
+                                     (funct3 == 3'b100 && i_slt) || //blt
+                                     (funct3 == 3'b101 && !i_slt)|| //bge
+                                     (funct3 == 3'b110 && i_slt) || //bltu
+                                     (funct3 == 3'b111 && !i_slt)   //bgeu
+                                    ));
+
+
+endmodule
+
+module control_decode(
+    input wire [6:0] i_opcode,
+    output wire       o_branch,
+    output wire       o_memRead,
+    output wire       o_memToReg,
+    output wire       o_memWrite,
+    output wire       o_aluSrc,
+    output wire       o_regWrite,
+    output wire       o_jump,
+    // aluOP is 00 for load/store, 01 for branch, 10 for R-type, 11 for I-type
+    output wire [1:0] o_aluOp,
+    output wire       o_lui,
+)
+
+    always(*) begin
+        case(i_opcode)
+            i_opcode[0]: begin // R-type
+                o_branch = 1'b0;
+                o_memRead = 1'b0;
+                o_memToReg = 1'b0;
+                o_memWrite = 1'b0;
+                o_aluSrc = 1'b0;
+                o_regWrite = 1'b1;
+                o_jump = 1'b0;
+                o_aluOp = 2'b10;
+                o_lui = 1'b0;
+            end
+            i_opcode[1]: begin // I-type
+                o_branch = 1'b0;
+                o_memRead = 1'b0;
+                o_memToReg = 1'b0;
+                o_memWrite = 1'b0;
+                o_aluSrc = 1'b1;
+                o_regWrite = 1'b1;
+                o_jump = 1'b0;
+                o_aluOp = 2'b11;
+                o_lui = 1'b0;
+            end
+            i_opcode[2]: begin // L-type
+                o_branch = 1'b0;
+                o_memRead = 1'b1;
+                o_memToReg = 1'b1;
+                o_memWrite = 1'b0;
+                o_aluSrc = 1'b1;
+                o_regWrite = 1'b1;
+                o_jump = 1'b0;
+                o_aluOp = 2'b00;
+                o_lui = 1'b0;
+            end
+            i_opcode[3]: begin //S-type
+                o_branch = 1'b0;
+                o_memRead = 1'b0;
+                o_memToReg = 1'b0;
+                o_memWrite = 1'b1;
+                o_aluSrc = 1'b1;
+                o_regWrite = 1'b0;
+                o_jump = 1'b0;
+                o_aluOp = 2'b00;
+                o_lui = 1'b0;
+            end
+            i_opcode[4]: begin //B-type
+                o_branch = 1'b1;
+                o_memRead = 1'b0;
+                o_memToReg = 1'b0;
+                o_memWrite = 1'b0;
+                o_aluSrc = 1'b0;
+                o_regWrite = 1'b0;
+                o_jump = 1'b0;
+                o_aluOp = 2'b01;
+                o_lui = 1'b0;
+            end
+            i_opcode[5]: begin //U-type
+                o_branch = 1'b0;
+                o_memRead = 1'b0;
+                o_memToReg = 1'b0;
+                o_memWrite = 1'b0;
+                o_aluSrc = 1'b1;
+                o_regWrite = 1'b1;
+                o_jump = 1'b0;
+                o_aluOp = 2'b11;
+                o_lui = 1'b1;
+            end
+            i_opcode[6]: begin //J-type
+                o_branch = 1'b0;
+                o_memRead = 1'b0;
+                o_memToReg = 1'b0;
+                o_memWrite = 1'b0;
+                o_aluSrc = 1'b1;
+                o_regWrite = 1'b1;
+                o_jump = 1'b1;
+                o_aluOp = 2'b11;
+                o_lui = 1'b0;
+            end
+            default: begin
+                o_branch = 1'b0;
+                o_memRead = 1'b0;
+                o_memToReg = 1'b0;
+                o_memWrite = 1'b0;
+                o_aluSrc = 1'b0;
+                o_regWrite = 1'b0;
+                o_jump = 1'b0;
+                o_aluOp = 2'b00;
+                o_lui = 1'b0;
+            end
+
+
+        endcase
+    end
+
+endmodule
+
+module ALU_decode(
+    input wire [1:0]  i_ALUOp,
+    input wire [2:0]  i_funct3,
+    input wire [6:0]  i_funct7,
+    output wire [2:0] o_opsel,
+    output wire       o_sub,
+    output wire       o_unsigned,
+    output wire       o_arith
+);
+
+    always(*) begin
+        case(i_ALUOP)
+            2'b00: begin 
+                o_opsel = 3'b000; // add for load/store
+                o_sub = 1'b0;
+                o_unsigned = 1'b0;
+                o_arith = 1'b0;
+            end
+            2'b01: begin
+                o_opsel = 3'b000; // subtract for branch
+                o_sub = 1'b1;
+                o_unsigned = 1'b0;
+                o_arith = 1'b0;
+            end
+            2'b1x: begin // R-type and I-type
+                case(i_funct3)
+                    3'b000: begin // add/sub
+                        o_opsel = funct3;
+                        if(i_funct7[5]) begin
+                            o_sub = 1'b1;
+                        end else begin
+                            o_sub = 1'b0;
+                        end
+                        o_unsigned = 1'b0;
+                        o_arith = 1'b1;
+                    end
+                    3'b001: begin // sll
+                        o_opsel = funct3;
+                        o_sub = 1'b0;
+                        o_unsigned = 1'b0;
+                        o_arith = 1'b0;
+                    end
+                    3'b010: begin // slt
+                        o_opsel = funct3;
+                        o_sub = 1'b0;
+                        o_unsigned = 1'b0;
+                        o_arith = 1'b1;
+                    end
+                    3'b011: begin // sltu
+                        o_opsel = funct3;
+                        o_sub = 1'b0;
+                        o_unsigned = 1'b1;
+                        o_arith = 1'b1;
+                    end
+                    3'b100: begin // xor
+                        o_opsel = funct3;
+                        o_sub = 1'b0;
+                        o_unsigned = 1'b0;
+                        o_arith = 1'b0;
+                    end
+                    3'b101: begin // srl/sra
+                        o_opsel = funct3;
+                        if(i_funct7[5]) begin
+                            o_sub = 1'b1; // sra
+                        end else begin
+                            o_sub = 1'b0; // srl
+                        end
+                        o_unsigned = 1'b0;
+                        o_arith = 1'b0;
+                    end
+                    3'b110: begin // or
+                        o_opsel = funct3;
+                        o_sub = 1'b0;
+                        o_unsigned = 1'b0;
+                        o_arith = 1'b0;
+                    end
+                    3'b111: begin // and
+                        o_opsel = funct3;
+                        o_sub = 1'b0;
+                        o_unsigned = 1'b0;
+                        o_arith = 1'b0;
+                    end
+                    default: begin
+                        o_opsel = 3'b000;
+                        o_sub = 1'b0;
+                        o_unsigned = 1'b0; 
+                        o_arith = 1'b0;
+                    end
+                endcase
+            end
+        endcase
+    end
+
+
+
+endmodule
+
 `default_nettype wire

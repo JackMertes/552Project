@@ -24,24 +24,14 @@ module imm (
     output wire [31:0] o_immediate
 );
     // Fill in your implementation here.
-	
-	//using cases here
-	reg [31:0] imm;
-	always_comb begin
-		case(1'b1) //one hot
-			i_format[1]: imm = {{21{i_inst[31]}},i_inst[30:20]};
-			i_format[2]: imm = {{21{i_inst[31]}},i_inst[30:25],i_inst[11:7]};
-			i_format[3]: imm = {{20{i_inst[31]}},i_inst[7],i_inst[30:25],i_inst[11:8],1'b0};
-			i_format[4]: imm = {i_inst[31],i_inst[30:12],12'b0};
-			i_format[5]: imm = {{12{i_inst[31]}},i_inst[19:12],i_inst[20],i_inst[30:21],1'b0};
-			default: imm = 32'd0; //this is also for r case
-		endcase
-	end
-	
-	//need to assign 
-	assign o_immediate = imm;
-	
-	
+
+    assign o_immediate = (i_format[0]) ? 32'bx :  // R type
+        (i_format[1]) ? {{21{i_inst[31]}}, i_inst[30:20]} : // I type
+        (i_format[2]) ? {{21{i_inst[31]}}, i_inst[30:25], i_inst[11:7]} : // S type
+        (i_format[3]) ? {{20{i_inst[31]}}, i_inst[7], i_inst[30:25], i_inst[11:8], 1'b0} : // B type
+        (i_format[4]) ? {i_inst[31], i_inst[30:12], 12'b0} : // U type
+        {{12{i_inst[31]}}, i_inst[19:12], i_inst[20], i_inst[30:21], 1'b0}; // J type
+
 endmodule
 
 `default_nettype wire
