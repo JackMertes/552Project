@@ -196,7 +196,7 @@ module hart #(
         .o_pc(pc_current)
     );
 
-    assign o_imem_raddr = pc_current;
+    assign o_imem_raddr = pc_current; //feeds instruction addr to imem
 	
 	/////////////////////////////////////////
 	//IMM
@@ -209,7 +209,6 @@ module hart #(
 		.i_format(format),
 		.o_immediate(full_imm)
 	);
-
 
 
     /////////////////////////////////////////
@@ -503,7 +502,103 @@ module ALU_decode(
     end
 
 
+///////////////////////////////////////////////////
+//Data Memory Hookup
+///////////////////////////////////////////////////
 
+    assign o_dmem_addr = {alu_result[31:2], 2'b00};
+    assign o_dmem_ren = memRead; //read and write enables
+    assign o_dmem_wen = memWrite;
+    assign o_dmem_wdata = rd_data;
+	
+    // The dmem interface expects word (32 bit) aligned addresses. However,
+    // WISC-25 supports byte and half-word loads and stores at unaligned and
+    // 16-bit aligned addresses, respectively. To support this, the access
+    // mask specifies which bytes within the 32-bit word are actually read
+    // from or written to memory.
+    //
+    // To perform a half-word read at address 0x00001002, align `o_dmem_addr`
+    // to 0x00001000, assert `o_dmem_ren`, and set the mask to 0b1100 to
+    // indicate that only the upper two bytes should be read. Only the upper
+    // two bytes of `i_dmem_rdata` can be assumed to have valid data; to
+    // calculate the final value of the `lh[u]` instruction, shift the rdata
+    // word right by 16 bits and sign/zero extend as appropriate.
+    //
+    // To perform a byte write at address 0x00002003, align `o_dmem_addr` to
+    // `0x00002003`, assert `o_dmem_wen`, and set the mask to 0b1000 to
+    // indicate that only the upper byte should be written. On the next clock
+    // cycle, the upper byte of `o_dmem_wdata` will be written to memory, with
+    // the other three bytes of the aligned word unaffected. Remember to shift
+    // the value of the `sb` instruction left by 24 bits to place it in the
+    // appropriate byte lane.
+    output wire [ 3:0] o_dmem_mask,
+    // The 32-bit word read from data memory. When `o_dmem_ren` is asserted,
+    // this will immediately reflect the contents of memory at the specified
+    // address, for the bytes enabled by the mask. When read enable is not
+    // asserted, or for bytes not set in the mask, the value is undefined.
+    input  wire [31:0] i_dmem_rdata,
+	
+	
+///////////////////////////////////////////////////
+//Retire Interface
+///////////////////////////////////////////////////
+	// The output `retire` interface is used to signal to the testbench that
+    // the CPU has completed and retired an instruction. A single cycle
+    // implementation will assert this every cycle; however, a pipelined
+    // implementation that needs to stall (due to internal hazards or waiting
+    // on memory accesses) will not assert the signal on cycles where the
+    // instruction in the writeback stage is not retiring.
+    //
+    // Asserted when an instruction is being retired this cycle. If this is
+    // not asserted, the other retire signals are ignored and may be left invalid.
+    output wire        o_retire_valid,
+    // The 32 bit instruction word of the instrution being retired. This
+    // should be the unmodified instruction word fetched from instruction
+    // memory.
+    output wire [31:0] o_retire_inst,
+    // Asserted if the instruction produced a trap, due to an illegal
+    // instruction, unaligned data memory access, or unaligned instruction
+    // address on a taken branch or jump.
+    output wire        o_retire_trap,
+    // Asserted if the instruction is an `ebreak` instruction used to halt the
+    // processor. This is used for debugging and testing purposes to end
+    // a program.
+    output wire        o_retire_halt,
+    // The first register address read by the instruction being retired. If
+    // the instruction does not read from a register (like `lui`), this
+    // should be 5'd0.
+    output wire [ 4:0] o_retire_rs1_raddr,
+    // The second register address read by the instruction being retired. If
+    // the instruction does not read from a second register (like `addi`), this
+    // should be 5'd0.
+    output wire [ 4:0] o_retire_rs2_raddr,
+    // The first source register data read from the register file (in the
+    // decode stage) for the instruction being retired. If rs1 is 5'd0, this
+    // should also be 32'd0.
+    output wire [31:0] o_retire_rs1_rdata,
+    // The second source register data read from the register file (in the
+    // decode stage) for the instruction being retired. If rs2 is 5'd0, this
+    // should also be 32'd0.
+    output wire [31:0] o_retire_rs2_rdata,
+    // The destination register address written by the instruction being
+    // retired. If the instruction does not write to a register (like `sw`),
+    // this should be 5'd0.
+    output wire [ 4:0] o_retire_rd_waddr,
+    // The destination register data written to the register file in the
+    // writeback stage by this instruction. If rd is 5'd0, this field is
+    // ignored and can be treated as a don't care.
+    output wire [31:0] o_retire_rd_wdata,
+    // The current program counter of the instruction being retired - i.e.
+    // the instruction memory address that the instruction was fetched from.
+    output wire [31:0] o_retire_pc,
+    // the next program counter after the instruction is retired. For most
+    // instructions, this is `o_retire_pc + 4`, but must be the branch or jump
+    // target for *taken* branches and jumps.
+    output wire [31:0] o_retire_next_pc
+
+
+
+	
 endmodule
 
 `default_nettype wire
