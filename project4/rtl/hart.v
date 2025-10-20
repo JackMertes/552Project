@@ -131,6 +131,98 @@ module hart #(
 `endif
 );
     // Fill in your implementation here.
+	
+	
+	
+	//////////////////////////////////////////
+	//PC
+	//////////////////////////////////////////
+    wire [31:0] pc_current, pc_next;
+
+	//instantiate pc module 
+    pc #(.RESET_ADDR(RESET_ADDR)) iPC (
+        .clk(i_clk),
+        .i_rst(i_rst),
+        .i_pc(pc_next),
+        .o_pc(pc_current)
+    );
+
+    assign o_imem_raddr = pc_current;
+	
+	/////////////////////////////////////////
+	//IMM
+	/////////////////////////////////////////
+	wire [31:0] full_imm;
+	wire [5:0] format; // from control unit (R,I,S types)
+
+	imm iIMM (
+		.i_inst(i_imem_rdata),//instruction from instruction memory
+		.i_format(format),
+		.o_immediate(full_imm)
+	);
+
+
+
+    /////////////////////////////////////////
+	// Register File Instantiation
+    /////////////////////////////////////////
+	wire [4:0] rs1, rs2, rd;
+	wire [31:0] rs1_data, rs2_data, rd_data;
+	wire regWrite;
+
+	// Extract register fields from instruction
+	assign rs1 = i_imem_rdata[19:15];
+	assign rs2 = i_imem_rdata[24:20];
+	assign rd  = i_imem_rdata[11:7];
+
+	// Instantiate register file
+	rf rf_inst (
+		.i_clk(i_clk),
+		.i_rst(i_rst),
+		.i_rs1_raddr(rs1),
+		.o_rs1_rdata(rs1_data),
+		.i_rs2_raddr(rs2),
+		.o_rs2_rdata(rs2_data),
+		.i_rd_wen(regWrite),     // from control unit
+		.i_rd_waddr(rd),
+		.i_rd_wdata(rd_data)         // from writeback mux
+	);
+
+	/////////////////////////////////////////
+	// ALU Instantiation
+	/////////////////////////////////////////
+	wire [31:0] alu_in1, alu_in2, alu_result;
+	wire alu_eq, alu_slt;
+
+	// ALU control signals from control unit
+	wire [2:0] alu_opsel;
+	wire alu_sub, alu_unsigned, alu_arith;
+
+	// Choose second operand: register or immediate
+	assign alu_in1 = rs1_data;
+	assign alu_in2 = (alu_src) ? imm_out : rs2_data;
+
+	// Instantiate ALU
+	alu alu_inst (
+		.i_opsel(alu_opsel),
+		.i_sub(alu_sub),
+		.i_unsigned(alu_unsigned),
+		.i_arith(alu_arith),
+		.i_op1(alu_in1),
+		.i_op2(alu_in2),
+		.o_result(alu_result),
+		.o_eq(alu_eq),
+		.o_slt(alu_slt)
+	);
+	
+	
+    /////////////////////////////////////////
+    //control unit
+	/////////////////////////////////////////
+
+
+	
+	
 endmodule
 
 module branch_decode (
