@@ -51,28 +51,28 @@ module rf #(
     // Fill in your implementation here.
 	
 	//these are the registers
-	reg [31:0] registers [31:0];
+	reg [31:0] mem [31:0];
 
 	//reads are combinationally
 	//need to implement special case x0 and if bypass is enabled then output could be current write input
 	assign o_rs1_rdata = (i_rs1_raddr == 5'd0) ? 32'd0 : 
 							(BYPASS_EN && i_rd_wen && (i_rd_waddr == i_rs1_raddr)) ? i_rd_wdata :
-							registers[i_rs1_raddr];
+							mem[i_rs1_raddr];
 	
 	//same but now for rs2
 	assign o_rs2_rdata = (i_rs2_raddr == 5'd0) ? 32'd0 : 
 							(BYPASS_EN && i_rd_wen && (i_rd_waddr == i_rs2_raddr)) ? i_rd_wdata :
-							registers[i_rs2_raddr];
+							mem[i_rs2_raddr];
 	
 	//writes are synchronous
 	integer i;
 	always @(posedge i_clk) begin
 		if(i_rst) begin
-			for(i=0; i<32; i++) begin
-				registers[i] <= 32'd0;
+			for(i=0; i<32; i = i + 1) begin
+				mem[i] <= 32'd0;
 			end
 		end
-		else if(i_rd_wen && i_rd_waddr != 5'd0) registers[i_rd_waddr] <= i_rd_wdata;
+		else if(i_rd_wen && i_rd_waddr != 5'd0) mem[i_rd_waddr] <= i_rd_wdata;
 	end
 	
 	

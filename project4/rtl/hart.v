@@ -130,493 +130,178 @@ module hart #(
     ,`RVFI_OUTPUTS,
 `endif
 );
-    // Fill in your implementation here.
-	
-	/////////////////////////////////////////
-    //control unit
-	/////////////////////////////////////////
-    wire branch, memRead, memToReg, memWrite, alu_src, jump, lui;
-    wire [1:0] aluOp;
-    wire [5:0] format;
 
-    control_decode ctrl_decode_inst (
-        .i_opcode(i_imem_rdata[6:0]),
-        .o_branch(branch),
-        .o_memRead(memRead),
-        .o_memToReg(memToReg),
-        .o_memWrite(memWrite),
-        .o_aluSrc(alu_src),
-        .o_regWrite(regWrite),
-        .o_jump(jump),
-        .o_aluOp(aluOp),
-        .o_lui(lui),
-        .o_format(format)
-    );
-	
-    //////////////////////////////////////////
-    // ALU Decode
-    //////////////////////////////////////////
+reg [31:0] pc;
+reg [31:0] pc_next;
+wire [31:0] curr_instruction;
 
-    wire [2:0] alu_opsel;
-    wire alu_sub, alu_unsigned, alu_arith;
+// Instruction fields
+wire [6:0] opcode;
+wire [4:0] rd;
+wire [4:0] rs1;
+wire [4:0] rs2;
+wire [2:0] funct3;
+wire [6:0] funct7;
 
-    ALU_decode alu_decode_inst (
-        .i_aluOp(aluOp),
-        .i_funct3(i_imem_rdata[14:12]),
-        .i_funct7(i_imem_rdata[31:25]),
-        .o_opsel(alu_opsel),
-        .o_sub(alu_sub),
-        .o_unsigned(alu_unsigned),
-        .o_arith(alu_arith)
-    );
+// Control signals
+wire        branch;
+wire        memRead;
+wire        memToReg;
+wire        memWrite;
+wire        aluSrc;
+wire        regWrite;
+wire        jump;
+wire [1:0]  aluOp;
+wire        lui;
+wire [5:0]  format;
 
-   //////////////////////////////////////////
-	// Branch Decode
-	////////////////////////////////////////// 
+// Register file signals
+wire [31:0] rs1_data;
+wire [31:0] rs2_data;
+wire [31:0] rd_data;
 
-    wire take_branch;
-    branch_decode branch_decode_inst (
-        .i_slt(alu_slt),
-        .i_eq(alu_eq),
-        .branch(branch),
-        .funct3(i_imem_rdata[14:12]),
-        .take_branch(take_branch)
-    );
+// Immediate
+wire [31:0] immediate;
 
-	//////////////////////////////////////////
-	//PC
-	//////////////////////////////////////////
-    wire [31:0] pc_current, pc_next;
+// ALU control
+wire [2:0] opsel;
+wire sub;
+wire u_unsigned;
+wire arith;
 
-	//instantiate pc module 
-    pc #(.RESET_ADDR(RESET_ADDR)) iPC (
-        .clk(i_clk),
+// ALU signals
+wire [31:0] alu_op2;
+wire [31:0] alu_result;
+wire        alu_eq;
+wire        alu_slt;
+
+// Branch signal
+wire take_branch;
+
+// PC
+always @(posedge i_clk) begin
+    if(i_rst)
+        pc <= RESET_ADDR;
+    else
+        pc <= pc_next;
+end
+
+assign o_retire_pc = pc;
+assign o_retire_next_pc = pc_next;
+
+// instruction memory read
+assign o_imem_raddr = pc;
+assign curr_instruction = i_imem_rdata;
+assign o_retire_inst = curr_instruction;
+
+// halt
+assign o_retire_halt = (curr_instruction == 32'h00100073) ? 1'b1 : 1'b0;
+
+// Decode instruction fields
+assign opcode = curr_instruction[6:0];
+assign rd     = curr_instruction[11:7];
+assign funct3 = curr_instruction[14:12];
+assign rs1    = curr_instruction[19:15];
+assign rs2    = curr_instruction[24:20];
+assign funct7 = curr_instruction[31:25];
+
+// Control modules
+
+control_decode control(.i_opcode(opcode), 
+                       .o_branch(branch), 
+                       .o_memRead(memRead), 
+                       .o_memToReg(memToReg), 
+                       .o_memWrite(memWrite), 
+                       .o_aluSrc(aluSrc), 
+                       .o_regWrite(regWrite), 
+                       .o_jump(jump), 
+                       .o_aluOp(aluOp), 
+                       .o_lui(lui), 
+                       .o_format(format)
+                       );
+
+assign o_dmem_ren = memRead;
+assign o_dmem_wen = memWrite;
+
+assign o_retire_rs1_raddr = (format[5] || format[4]) ? 5'd0 : rs1;  // Zero if U-type or J-type
+assign o_retire_rs2_raddr = (format[0] || format[2] || format[3]) ? rs2 : 5'd0;  // Only R-type, S-type, B-type read rs2
+assign o_retire_rd_waddr  = (format[5] || format[4]) ? 5'd0 : rd;  // Zero if U-type or J-type
+
+// Register file
+rf rf(.i_clk(i_clk),
         .i_rst(i_rst),
-        .i_pc(pc_next),
-        .o_pc(pc_current)
-    );
-
-    assign o_imem_raddr = pc_current; //feeds instruction addr to imem
-	
-	/////////////////////////////////////////
-	//IMM
-	/////////////////////////////////////////
-	wire [31:0] full_imm;
-	wire [5:0] format; // from control unit (R,I,S types)
-
-	imm iIMM (
-		.i_inst(i_imem_rdata),//instruction from instruction memory
-		.i_format(format),
-		.o_immediate(full_imm)
-	);
+        .i_rs1_raddr(rs1),
+        .o_rs1_rdata(rs1_data),
+        .i_rs2_raddr(rs2),
+        .o_rs2_rdata(rs2_data),
+        .i_rd_wen(regWrite),
+        .i_rd_waddr(rd),
+        .i_rd_wdata(rd_data)
+        );
 
 
-    /////////////////////////////////////////
-	// Register File Instantiation
-    /////////////////////////////////////////
-	wire [4:0] rs1, rs2, rd;
-	wire [31:0] rs1_data, rs2_data, rd_data;
-	wire regWrite;
+assign o_retire_rs1_rdata = (format[5] || format[4]) ? 32'd0 : rs1_data;  // Zero if U-type or J-type
+assign o_retire_rs2_rdata = (format[0] || format[2] || format[3]) ? rs2_data : 32'd0;  // Only R-type, S-type, B-type read rs2
+assign o_retire_rd_wdata  = rd_data;
 
-	// Extract register fields from instruction
-	assign rs1 = i_imem_rdata[19:15];
-	assign rs2 = i_imem_rdata[24:20];
-	assign rd  = i_imem_rdata[11:7];
+// Immediate generation
+imm imm(.i_inst(curr_instruction),
+            .i_format(format),
+            .o_immediate(immediate)
+            );
 
-	// Instantiate register file
-	rf rf_inst (
-		.i_clk(i_clk),
-		.i_rst(i_rst),
-		.i_rs1_raddr(rs1),
-		.o_rs1_rdata(rs1_data),
-		.i_rs2_raddr(rs2),
-		.o_rs2_rdata(rs2_data),
-		.i_rd_wen(regWrite),     // from control unit
-		.i_rd_waddr(rd),
-		.i_rd_wdata(rd_data)         // from writeback mux
-	);
+// ALU instruction decoder
+alu_decode alu_decode(.i_ALUOp(aluOp),
+                      .i_funct3(funct3),
+                      .i_funct7(funct7),
+                      .o_opsel(opsel),
+                      .o_sub(sub),
+                      .o_unsigned(u_unsigned),
+                      .o_arith(arith)
+                      );
 
-	/////////////////////////////////////////
-	// ALU Instantiation
-	/////////////////////////////////////////
-	wire [31:0] alu_in1, alu_in2, alu_result;
-	wire alu_eq, alu_slt;
+// ALU
+alu alu(.i_opsel(opsel),
+        .i_sub(sub),
+        .i_unsigned(u_unsigned),
+        .i_arith(arith),
+        .i_op1(rs1_data),
+        .i_op2(alu_op2),
+        .o_result(alu_result),
+        .o_eq(alu_eq),
+        .o_slt(alu_slt)
+        );
 
-	// Choose second operand: register or immediate
-	assign alu_in1 = rs1_data;
-	assign alu_in2 = (alu_src) ? imm_out : rs2_data;
+// ALU operand 2 selection
+assign alu_op2 = (aluSrc) ? immediate : rs2_data;
 
-	// Instantiate ALU
-	alu alu_inst (
-		.i_opsel(alu_opsel),
-		.i_sub(alu_sub),
-		.i_unsigned(alu_unsigned),
-		.i_arith(alu_arith),
-		.i_op1(alu_in1),
-		.i_op2(alu_in2),
-		.o_result(alu_result),
-		.o_eq(alu_eq),
-		.o_slt(alu_slt)
-	);
+// Branch decode
+branch_decode branch_dec(.i_slt(alu_slt),
+                         .i_funct3(funct3),
+                         .i_eq(alu_eq),
+                         .i_branch(branch),
+                         .o_take_branch(take_branch)
+                         );
 
-    // Branch and jump instruction control
-    assign pc_next = (jump || take_branch) ? (pc_current + full_imm) : (pc_current + 4);
+// Next PC logic
+assign pc_next = (jump || take_branch) ? (pc + immediate) : (pc + 4);
 
+// Data memory interface
+assign o_dmem_addr = alu_result;
+assign o_dmem_wdata = rs2_data;
+assign o_dmem_mask = (funct3 == 3'b000) ? (4'b0001 << alu_result[1:0]) : // byte
+                      (funct3 == 3'b001) ? (4'b0011 << {alu_result[1], 1'b0}) : // half-word
+                      4'b1111; // word
 
-    // Datamemory hookup
-    assign o_dmem_addr = alu_result; // 
-    assign o_dmem_ren = memRead; //read and write enables
-    assign o_dmem_wen = memWrite;
-    assign o_dmem_wdata = rs2_data;
+// Writeback data selection
+assign rd_data = (memToReg) ? i_dmem_rdata : 
+                  (lui) ? immediate :
+                  alu_result;
 
-    // LUI
-    wire [31:0] writeback_data;
-    assign writeback_data = (memToReg) ? i_dmem_rdata :
-                     (lui) ? {full_imm[31:12], 12'b0} :
-                     alu_result;
-    assign rd_data = (jump) ? pc_current + 4 : writeback_data;
-
-    // retire interface
-    assign o_retire_valid     = 1'b1; // single cycle, always valid
-    assign o_retire_inst      = i_imem_rdata;
-    assign o_retire_trap      = 1'b0; // no traps in single cycle
-    assign o_retire_halt      = (i_imem_rdata == 32'h00100073); // ebreak instruction
-    assign o_retire_rs1_raddr = rs1;
-    assign o_retire_rs2_raddr = rs2;
-    assign o_retire_rs1_rdata = rs1_data;
-
-endmodule
-
-module branch_decode (
-    input i_slt,
-    input i_eq,
-    input branch,
-    input [2:0] funct3,
-    output take_branch
-)
-    assign take_branch = (branch && ((funct3 == 3'b000 && i_eq) || //beq
-                                     (funct3 == 3'b001 && !i_eq) || //bne
-                                     (funct3 == 3'b100 && i_slt) || //blt
-                                     (funct3 == 3'b101 && !i_slt)|| //bge
-                                     (funct3 == 3'b110 && i_slt) || //bltu
-                                     (funct3 == 3'b111 && !i_slt)   //bgeu
-                                    ));
+assign o_retire_valid = 1'b1;
+assign o_retire_trap = 1'b0;
 
 
-endmodule
-
-module control_decode(
-    input wire [6:0] i_opcode,
-    output wire       o_branch,
-    output wire       o_memRead,
-    output wire       o_memToReg,
-    output wire       o_memWrite,
-    output wire       o_aluSrc,
-    output wire       o_regWrite,
-    output wire       o_jump,
-    // aluOP is 00 for load/store, 01 for branch, 10 for R-type, 11 for I-type
-    output wire [1:0] o_aluOp,
-    output wire       o_lui,
-    output wire [5:0] o_format
-)
-
-    always(*) begin
-        case(i_opcode)
-            i_opcode[0]: begin // R-type
-                o_branch = 1'b0;
-                o_memRead = 1'b0;
-                o_memToReg = 1'b0;
-                o_memWrite = 1'b0;
-                o_aluSrc = 1'b0;
-                o_regWrite = 1'b1;
-                o_jump = 1'b0;
-                o_aluOp = 2'b10;
-                o_lui = 1'b0;
-            end
-            i_opcode[1]: begin // I-type
-                o_branch = 1'b0;
-                o_memRead = 1'b0;
-                o_memToReg = 1'b0;
-                o_memWrite = 1'b0;
-                o_aluSrc = 1'b1;
-                o_regWrite = 1'b1;
-                o_jump = 1'b0;
-                o_aluOp = 2'b11;
-                o_lui = 1'b0;
-            end
-            i_opcode[2]: begin // L-type
-                o_branch = 1'b0;
-                o_memRead = 1'b1;
-                o_memToReg = 1'b1;
-                o_memWrite = 1'b0;
-                o_aluSrc = 1'b1;
-                o_regWrite = 1'b1;
-                o_jump = 1'b0;
-                o_aluOp = 2'b00;
-                o_lui = 1'b0;
-            end
-            i_opcode[3]: begin //S-type
-                o_branch = 1'b0;
-                o_memRead = 1'b0;
-                o_memToReg = 1'b0;
-                o_memWrite = 1'b1;
-                o_aluSrc = 1'b1;
-                o_regWrite = 1'b0;
-                o_jump = 1'b0;
-                o_aluOp = 2'b00;
-                o_lui = 1'b0;
-            end
-            i_opcode[4]: begin //B-type
-                o_branch = 1'b1;
-                o_memRead = 1'b0;
-                o_memToReg = 1'b0;
-                o_memWrite = 1'b0;
-                o_aluSrc = 1'b0;
-                o_regWrite = 1'b0;
-                o_jump = 1'b0;
-                o_aluOp = 2'b01;
-                o_lui = 1'b0;
-            end
-            i_opcode[5]: begin //U-type
-                o_branch = 1'b0;
-                o_memRead = 1'b0;
-                o_memToReg = 1'b0;
-                o_memWrite = 1'b0;
-                o_aluSrc = 1'b1;
-                o_regWrite = 1'b1;
-                o_jump = 1'b0;
-                o_aluOp = 2'b11;
-                o_lui = 1'b1;
-            end
-            i_opcode[6]: begin //J-type
-                o_branch = 1'b0;
-                o_memRead = 1'b0;
-                o_memToReg = 1'b0;
-                o_memWrite = 1'b0;
-                o_aluSrc = 1'b1;
-                o_regWrite = 1'b1;
-                o_jump = 1'b1;
-                o_aluOp = 2'b11;
-                o_lui = 1'b0;
-            end
-            default: begin
-                o_branch = 1'b0;
-                o_memRead = 1'b0;
-                o_memToReg = 1'b0;
-                o_memWrite = 1'b0;
-                o_aluSrc = 1'b0;
-                o_regWrite = 1'b0;
-                o_jump = 1'b0;
-                o_aluOp = 2'b00;
-                o_lui = 1'b0;
-            end
-
-
-        endcase
-    end
-
-    // format output encoding one-hot: R-type, I-type, S-type, B-type, U-type, J-type
-    assign o_format = (i_opcode == 7'b0110011) ? 6'b000001 : // R-type
-                      (i_opcode == 7'b0010011 || i_opcode == 7'b0000011) ? 6'b000010 : // I-type
-                      (i_opcode == 7'b0100011) ? 6'b000100 : // S-type
-                      (i_opcode == 7'b1100011) ? 6'b001000 : // B-type
-                      (i_opcode == 7'b0110111 || i_opcode == 7'b0010111) ? 6'b010000 : // U-type
-                      (i_opcode == 7'b1101111) ? 6'b100000 : // J-type
-                        6'b000000; // default
-
-endmodule
-
-module ALU_decode(
-    input wire [1:0]  i_ALUOp,
-    input wire [2:0]  i_funct3,
-    input wire [6:0]  i_funct7,
-    output wire [2:0] o_opsel,
-    output wire       o_sub,
-    output wire       o_unsigned,
-    output wire       o_arith
-);
-
-    always(*) begin
-        case(i_ALUOP)
-            2'b00: begin 
-                o_opsel = 3'b000; // add for load/store
-                o_sub = 1'b0;
-                o_unsigned = 1'b0;
-                o_arith = 1'b0;
-            end
-            2'b01: begin
-                o_opsel = 3'b000; // subtract for branch
-                o_sub = 1'b1;
-                o_unsigned = 1'b0;
-                o_arith = 1'b0;
-            end
-            2'b1x: begin // R-type and I-type
-                case(i_funct3)
-                    3'b000: begin // add/sub
-                        o_opsel = funct3;
-                        if(i_funct7[5]) begin
-                            o_sub = 1'b1;
-                        end else begin
-                            o_sub = 1'b0;
-                        end
-                        o_unsigned = 1'b0;
-                        o_arith = 1'b1;
-                    end
-                    3'b001: begin // sll
-                        o_opsel = funct3;
-                        o_sub = 1'b0;
-                        o_unsigned = 1'b0;
-                        o_arith = 1'b0;
-                    end
-                    3'b010: begin // slt
-                        o_opsel = funct3;
-                        o_sub = 1'b0;
-                        o_unsigned = 1'b0;
-                        o_arith = 1'b1;
-                    end
-                    3'b011: begin // sltu
-                        o_opsel = funct3;
-                        o_sub = 1'b0;
-                        o_unsigned = 1'b1;
-                        o_arith = 1'b1;
-                    end
-                    3'b100: begin // xor
-                        o_opsel = funct3;
-                        o_sub = 1'b0;
-                        o_unsigned = 1'b0;
-                        o_arith = 1'b0;
-                    end
-                    3'b101: begin // srl/sra
-                        o_opsel = funct3;
-                        if(i_funct7[5]) begin
-                            o_sub = 1'b1; // sra
-                        end else begin
-                            o_sub = 1'b0; // srl
-                        end
-                        o_unsigned = 1'b0;
-                        o_arith = 1'b0;
-                    end
-                    3'b110: begin // or
-                        o_opsel = funct3;
-                        o_sub = 1'b0;
-                        o_unsigned = 1'b0;
-                        o_arith = 1'b0;
-                    end
-                    3'b111: begin // and
-                        o_opsel = funct3;
-                        o_sub = 1'b0;
-                        o_unsigned = 1'b0;
-                        o_arith = 1'b0;
-                    end
-                    default: begin
-                        o_opsel = 3'b000;
-                        o_sub = 1'b0;
-                        o_unsigned = 1'b0; 
-                        o_arith = 1'b0;
-                    end
-                endcase
-            end
-        endcase
-    end
-
-
-///////////////////////////////////////////////////
-//Data Memory Hookup
-///////////////////////////////////////////////////
-
-    assign o_dmem_addr = {alu_result[31:2], 2'b00};
-    assign o_dmem_ren = memRead; //read and write enables
-    assign o_dmem_wen = memWrite;
-    assign o_dmem_wdata = rd_data;
-	
-    // The dmem interface expects word (32 bit) aligned addresses. However,
-    // WISC-25 supports byte and half-word loads and stores at unaligned and
-    // 16-bit aligned addresses, respectively. To support this, the access
-    // mask specifies which bytes within the 32-bit word are actually read
-    // from or written to memory.
-    //
-    // To perform a half-word read at address 0x00001002, align `o_dmem_addr`
-    // to 0x00001000, assert `o_dmem_ren`, and set the mask to 0b1100 to
-    // indicate that only the upper two bytes should be read. Only the upper
-    // two bytes of `i_dmem_rdata` can be assumed to have valid data; to
-    // calculate the final value of the `lh[u]` instruction, shift the rdata
-    // word right by 16 bits and sign/zero extend as appropriate.
-    //
-    // To perform a byte write at address 0x00002003, align `o_dmem_addr` to
-    // `0x00002003`, assert `o_dmem_wen`, and set the mask to 0b1000 to
-    // indicate that only the upper byte should be written. On the next clock
-    // cycle, the upper byte of `o_dmem_wdata` will be written to memory, with
-    // the other three bytes of the aligned word unaffected. Remember to shift
-    // the value of the `sb` instruction left by 24 bits to place it in the
-    // appropriate byte lane.
-    output wire [ 3:0] o_dmem_mask,
-    // The 32-bit word read from data memory. When `o_dmem_ren` is asserted,
-    // this will immediately reflect the contents of memory at the specified
-    // address, for the bytes enabled by the mask. When read enable is not
-    // asserted, or for bytes not set in the mask, the value is undefined.
-    input  wire [31:0] i_dmem_rdata,
-	
-	
-///////////////////////////////////////////////////
-//Retire Interface
-///////////////////////////////////////////////////
-	// The output `retire` interface is used to signal to the testbench that
-    // the CPU has completed and retired an instruction. A single cycle
-    // implementation will assert this every cycle; however, a pipelined
-    // implementation that needs to stall (due to internal hazards or waiting
-    // on memory accesses) will not assert the signal on cycles where the
-    // instruction in the writeback stage is not retiring.
-    //
-    // Asserted when an instruction is being retired this cycle. If this is
-    // not asserted, the other retire signals are ignored and may be left invalid.
-    output wire        o_retire_valid,
-    // The 32 bit instruction word of the instrution being retired. This
-    // should be the unmodified instruction word fetched from instruction
-    // memory.
-    output wire [31:0] o_retire_inst,
-    // Asserted if the instruction produced a trap, due to an illegal
-    // instruction, unaligned data memory access, or unaligned instruction
-    // address on a taken branch or jump.
-    output wire        o_retire_trap,
-    // Asserted if the instruction is an `ebreak` instruction used to halt the
-    // processor. This is used for debugging and testing purposes to end
-    // a program.
-    output wire        o_retire_halt,
-    // The first register address read by the instruction being retired. If
-    // the instruction does not read from a register (like `lui`), this
-    // should be 5'd0.
-    output wire [ 4:0] o_retire_rs1_raddr,
-    // The second register address read by the instruction being retired. If
-    // the instruction does not read from a second register (like `addi`), this
-    // should be 5'd0.
-    output wire [ 4:0] o_retire_rs2_raddr,
-    // The first source register data read from the register file (in the
-    // decode stage) for the instruction being retired. If rs1 is 5'd0, this
-    // should also be 32'd0.
-    output wire [31:0] o_retire_rs1_rdata,
-    // The second source register data read from the register file (in the
-    // decode stage) for the instruction being retired. If rs2 is 5'd0, this
-    // should also be 32'd0.
-    output wire [31:0] o_retire_rs2_rdata,
-    // The destination register address written by the instruction being
-    // retired. If the instruction does not write to a register (like `sw`),
-    // this should be 5'd0.
-    output wire [ 4:0] o_retire_rd_waddr,
-    // The destination register data written to the register file in the
-    // writeback stage by this instruction. If rd is 5'd0, this field is
-    // ignored and can be treated as a don't care.
-    output wire [31:0] o_retire_rd_wdata,
-    // The current program counter of the instruction being retired - i.e.
-    // the instruction memory address that the instruction was fetched from.
-    output wire [31:0] o_retire_pc,
-    // the next program counter after the instruction is retired. For most
-    // instructions, this is `o_retire_pc + 4`, but must be the branch or jump
-    // target for *taken* branches and jumps.
-    output wire [31:0] o_retire_next_pc
-
-
-
-	
 endmodule
 
 `default_nettype wire

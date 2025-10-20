@@ -45,24 +45,60 @@ module alu (
     output wire        o_slt
 );
     // Fill in your implementation here.
-	
-	//if 1 is postive and 2 neg then 0 else if 1n and 2p then 1 other wise 1<2
-	wire signed_slt = (!i_op1[31] && i_op2[31]) ? 1'd0 : (i_op1[31] && !i_op2[31]) ? 1'd1 : (i_op1 < i_op2);
-	
-	//use case statement again
-	reg [31:0] result;
-	always @(*) begin
-		case(i_opsel)
-			3'b000: result = (i_sub) ? i_op1 - i_op2 : i_op1 + i_op2;
-			3'b001: result = i_op1 << i_op2[4:0];
-			3'b010, 3'b011: result = (i_unsigned) ? {31'd0, i_op1 < i_op2} : {31'd0, signed_slt};
-			3'b100: result = i_op1 ^ i_op2;
-			3'b101: result = (i_arith) ? $unsigned($signed(i_op1) >>> i_op2[4:0]) : i_op1 >> i_op2[4:0];
-			3'b110: result = i_op1 | i_op2;
-			3'b111: result = i_op1 & i_op2;
-			default: result = 32'd0;
-		endcase
-	end
+    wire [31:0] add_res; 
+    wire [31:0] slt_res;
+    wire signed_lt;
+    wire unsigned_lt;
+    wire [31:0] shift_res;
+
+    assign add_res = (i_sub) ? i_op1 - i_op2 : i_op1 + i_op2;
+
+    assign unsigned_lt = (i_op1 < i_op2);
+    assign signed_lt = (i_op1[31] & ~i_op2[31]) | (~(i_op1[31] ^ i_op2[31]) & unsigned_lt);
+    assign slt_res = (i_unsigned) ? unsigned_lt : signed_lt;
+
+    barrel_shifter32 barrel(.a(i_op1), .shamt(i_op2[4:0]), .dir(i_opsel != 3'b001), .is_arith(i_arith), .res(shift_res));
+
+    assign o_result = 
+        (i_opsel == 3'b000) ? add_res :
+        (i_opsel == 3'b001) ? shift_res :
+        (i_opsel == 3'b010) ? slt_res :
+        (i_opsel == 3'b011) ? slt_res :
+        (i_opsel == 3'b100) ? i_op1 ^ i_op2 :
+        (i_opsel == 3'b101) ? shift_res :
+        (i_opsel == 3'b110) ? i_op1 | i_op2 : 
+        (i_opsel == 3'b111) ? i_op1 & i_op2 : 32'b0;
+
+    assign o_eq = i_op1 == i_op2;
+    assign o_slt = slt_res[0];
+
+endmodule
+
+module barrel_shifter32 (
+    input  wire [31:0] a,
+    input  wire [4:0]  shamt,
+    input  wire        dir,        // 0=left, 1=right
+    input  wire        is_arith, 
+    output wire [31:0] res
+);
+    // fill bit for arithmetic right shift
+    wire fill = (dir & is_arith & a[31]);
+
+    // right shift
+    wire [31:0] s0  = a;
+    wire [31:0] s1  = shamt[0] ? {fill,       s0[31:1]}    : s0;
+    wire [31:0] s2  = shamt[1] ? {{2{fill}},  s1[31:2]}    : s1;
+    wire [31:0] s4  = shamt[2] ? {{4{fill}},  s2[31:4]}    : s2;
+    wire [31:0] s8  = shamt[3] ? {{8{fill}},  s4[31:8]}    : s4;
+    wire [31:0] s16 = shamt[4] ? {{16{fill}}, s8[31:16]}   : s8;
+
+    // left shift
+    wire [31:0] l0  = a;
+    wire [31:0] l1  = shamt[0] ? {l0[30:0], 1'b0}  : l0;
+    wire [31:0] l2  = shamt[1] ? {l1[29:0], 2'b0}  : l1;
+    wire [31:0] l4  = shamt[2] ? {l2[27:0], 4'b0}  : l2;
+    wire [31:0] l8  = shamt[3] ? {l4[23:0], 8'b0}  : l4;
+    wire [31:0] l16 = shamt[4] ? {l8[15:0], 16'b0} : l8;
 
     assign res = (dir) ? s16 : l16;
 endmodule
