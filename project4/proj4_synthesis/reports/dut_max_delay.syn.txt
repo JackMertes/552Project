@@ -1,0 +1,100 @@
+ 
+****************************************
+Report : timing
+        -path full
+        -delay max
+        -max_paths 1
+Design : hart
+Version: X-2025.06
+Date   : Tue Oct 21 01:27:51 2025
+****************************************
+
+ # A fanout number of 1000 was used for high fanout net computations.
+
+Operating Conditions: tt0p85v25c   Library: saed32rvt_tt0p85v25c
+Wire Load Model Mode: enclosed
+
+  Startpoint: i_imem_rdata[3]
+              (input port clocked by clk)
+  Endpoint: o_retire_rd_wdata[31]
+            (output port clocked by clk)
+  Path Group: clk
+  Path Type: max
+
+  Des/Clust/Port     Wire Load Model       Library
+  ------------------------------------------------
+  hart               35000                 saed32rvt_tt0p85v25c
+
+  Point                                    Incr       Path
+  -----------------------------------------------------------
+  clock clk (rise edge)                    0.00       0.00
+  clock network delay (ideal)              0.00       0.00
+  input external delay                     0.25       0.25 f
+  i_imem_rdata[3] (in)                     0.00       0.25 f
+  U4479/Y (INVX1_RVT)                      0.04       0.29 r
+  U3905/Y (NAND4X0_RVT)                    0.08       0.37 f
+  U4314/Y (INVX1_RVT)                      0.06       0.44 r
+  U3898/Y (NAND2X0_RVT)                    0.07       0.50 f
+  U4315/Y (INVX1_RVT)                      0.06       0.56 r
+  U3897/Y (NAND2X0_RVT)                    0.06       0.63 f
+  U4316/Y (NAND2X1_RVT)                    0.13       0.75 r
+  U4122/Y (INVX1_RVT)                      0.06       0.82 f
+  U4037/Y (NBUFFX2_RVT)                    0.08       0.89 f
+  U3892/Y (OA221X1_RVT)                    0.10       0.99 f
+  U4317/Y (INVX1_RVT)                      0.06       1.06 r
+  U4123/Y (INVX1_RVT)                      0.05       1.10 f
+  U4039/Y (INVX1_RVT)                      0.04       1.14 r
+  U4038/Y (INVX1_RVT)                      0.06       1.21 f
+  U3590/Y (AO22X1_RVT)                     0.12       1.32 f
+  U4121/Y (INVX1_RVT)                      0.08       1.40 r
+  alu/sub_54/U2_1/CO (FADDX1_RVT)          0.15       1.55 r
+  alu/sub_54/U2_2/CO (FADDX1_RVT)          0.12       1.67 r
+  alu/sub_54/U2_3/CO (FADDX1_RVT)          0.12       1.79 r
+  alu/sub_54/U2_4/CO (FADDX1_RVT)          0.12       1.91 r
+  alu/sub_54/U2_5/CO (FADDX1_RVT)          0.12       2.02 r
+  alu/sub_54/U2_6/CO (FADDX1_RVT)          0.12       2.14 r
+  alu/sub_54/U2_7/CO (FADDX1_RVT)          0.12       2.26 r
+  alu/sub_54/U2_8/CO (FADDX1_RVT)          0.12       2.37 r
+  alu/sub_54/U2_9/CO (FADDX1_RVT)          0.12       2.49 r
+  alu/sub_54/U2_10/CO (FADDX1_RVT)         0.12       2.61 r
+  alu/sub_54/U2_11/CO (FADDX1_RVT)         0.12       2.73 r
+  alu/sub_54/U2_12/CO (FADDX1_RVT)         0.12       2.84 r
+  alu/sub_54/U2_13/CO (FADDX1_RVT)         0.12       2.96 r
+  alu/sub_54/U2_14/CO (FADDX1_RVT)         0.12       3.08 r
+  alu/sub_54/U2_15/CO (FADDX1_RVT)         0.12       3.19 r
+  alu/sub_54/U2_16/CO (FADDX1_RVT)         0.12       3.31 r
+  alu/sub_54/U2_17/CO (FADDX1_RVT)         0.12       3.43 r
+  alu/sub_54/U2_18/CO (FADDX1_RVT)         0.12       3.55 r
+  alu/sub_54/U2_19/CO (FADDX1_RVT)         0.12       3.66 r
+  alu/sub_54/U2_20/CO (FADDX1_RVT)         0.12       3.78 r
+  alu/sub_54/U2_21/CO (FADDX1_RVT)         0.12       3.90 r
+  alu/sub_54/U2_22/CO (FADDX1_RVT)         0.12       4.01 r
+  alu/sub_54/U2_23/CO (FADDX1_RVT)         0.12       4.13 r
+  alu/sub_54/U2_24/CO (FADDX1_RVT)         0.12       4.25 r
+  alu/sub_54/U2_25/CO (FADDX1_RVT)         0.12       4.37 r
+  alu/sub_54/U2_26/CO (FADDX1_RVT)         0.12       4.48 r
+  alu/sub_54/U2_27/CO (FADDX1_RVT)         0.12       4.60 r
+  alu/sub_54/U2_28/CO (FADDX1_RVT)         0.12       4.72 r
+  alu/sub_54/U2_29/CO (FADDX1_RVT)         0.12       4.83 r
+  alu/sub_54/U2_30/CO (FADDX1_RVT)         0.12       4.95 r
+  alu/sub_54/U2_31/S (FADDX1_RVT)          0.16       5.11 f
+  U2196/Y (AOI221X1_RVT)                   0.11       5.22 r
+  U2185/Y (NAND4X0_RVT)                    0.06       5.27 f
+  U1792/Y (AOI22X1_RVT)                    0.12       5.39 r
+  U1790/Y (NAND3X0_RVT)                    0.05       5.44 f
+  o_retire_rd_wdata[31] (out)              0.00       5.44 f
+  data arrival time                                   5.44
+
+  clock clk (rise edge)                    7.00       7.00
+  clock network delay (ideal)              0.00       7.00
+  clock uncertainty                       -0.15       6.85
+  output external delay                   -0.50       6.35
+  data required time                                  6.35
+  -----------------------------------------------------------
+  data required time                                  6.35
+  data arrival time                                  -5.44
+  -----------------------------------------------------------
+  slack (MET)                                         0.91
+
+
+1
