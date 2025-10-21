@@ -1,0 +1,6 @@
+Jack Mertes
+Ryan O'Sullivan
+Jakob Landgraf
+
+We certify that our usage of LLMs is consistent with UW-Madison's academic integrity
+policies.
