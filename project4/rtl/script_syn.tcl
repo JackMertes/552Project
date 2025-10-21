@@ -4,7 +4,7 @@ file mkdir ./reports
 file mkdir ./outputs
 
 
-read_file -format verilog {hart.v decode.v alu.v rf.v}
+read_file -format verilog {hart.v alu.v rf.v imm.v control_decode.v branch_decode.v ALU_decode.v}
 set current_design hart
 link
 
