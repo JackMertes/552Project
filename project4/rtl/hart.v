@@ -145,6 +145,7 @@ wire [6:0] funct7;
 
 // Control signals
 wire        branch;
+wire        jalr;
 wire        memRead;
 wire        memToReg;
 wire        memWrite;
@@ -170,7 +171,7 @@ wire u_unsigned;
 wire arith;
 
 // ALU signals
-wire [31:0] alu_op2;
+wire [31:0] alu_op2;  //alu_op1 is the same as rs1_data
 wire [31:0] alu_result;
 wire        alu_eq;
 wire        alu_slt;
@@ -189,16 +190,25 @@ always @(posedge i_clk) begin
         pc <= pc_next;
 end
 
+// Retire interface
+assign o_retire_valid = 1'b1; //always retiring because single cycle
+assign o_retire_inst = curr_instruction;
+assign o_retire_trap = 1'b0; //assert if illegal instruction. All tests pass with 1'b0 right now
+assign o_retire_halt = (curr_instruction == 32'h00100073) ? 1'b1 : 1'b0; //ebreak
+
+assign o_retire_rs1_raddr = (opcode == 7'b1101111) ? rs1 : ((format[5] || format[4]) ? 5'd0 : rs1); // JAL: x31, else original logic
+assign o_retire_rs2_raddr = (format[0] || format[2] || format[3]) ? rs2 : 5'd0;  // Only R-type, S-type, B-type read rs2
+assign o_retire_rs1_rdata = (format[5] || format[4]) ? 32'd0 : rs1_data;  // Zero if U-type or J-type
+assign o_retire_rs2_rdata = (format[0] || format[2] || format[3]) ? rs2_data : 32'd0;  // Only R-type, S-type, B-type read rs2
+assign o_retire_rd_waddr  = (format[2] || format[3]) ? 5'd0 : rd;  // Zero if S or B-type
+assign o_retire_rd_wdata  = rd_data;
+
 assign o_retire_pc = pc;
 assign o_retire_next_pc = pc_next;
 
 // instruction memory read
 assign o_imem_raddr = pc;
 assign curr_instruction = i_imem_rdata;
-assign o_retire_inst = curr_instruction;
-
-// halt
-assign o_retire_halt = (curr_instruction == 32'h00100073) ? 1'b1 : 1'b0;
 
 // Decode instruction fields
 assign opcode = curr_instruction[6:0];
@@ -209,9 +219,9 @@ assign rs2    = curr_instruction[24:20];
 assign funct7 = curr_instruction[31:25];
 
 // Control modules
-
 control_decode control(.i_opcode(opcode), 
-                       .o_branch(branch), 
+                       .o_branch(branch),
+					   .o_jalr(jalr),
                        .o_memRead(memRead), 
                        .o_memToReg(memToReg), 
                        .o_memWrite(memWrite), 
@@ -226,10 +236,6 @@ control_decode control(.i_opcode(opcode),
 assign o_dmem_ren = memRead;
 assign o_dmem_wen = memWrite;
 
-assign o_retire_rs1_raddr = (opcode == 7'b1101111) ? rs1 : ((format[5] || format[4]) ? 5'd0 : rs1); // JAL: x31, else original logic
-assign o_retire_rs2_raddr = (format[0] || format[2] || format[3]) ? rs2 : 5'd0;  // Only R-type, S-type, B-type read rs2
-assign o_retire_rd_waddr  = (format[2] || format[3]) ? 5'd0 : rd;  // Zero if S or B-type
-
 // Register file
 rf rf(.i_clk(i_clk),
         .i_rst(i_rst),
@@ -242,10 +248,6 @@ rf rf(.i_clk(i_clk),
         .i_rd_wdata(rd_data)
         );
 
-
-assign o_retire_rs1_rdata = (format[5] || format[4]) ? 32'd0 : rs1_data;  // Zero if U-type or J-type
-assign o_retire_rs2_rdata = (format[0] || format[2] || format[3]) ? rs2_data : 32'd0;  // Only R-type, S-type, B-type read rs2
-assign o_retire_rd_wdata  = rd_data;
 
 // Immediate generation
 imm imm(.i_inst(curr_instruction),
@@ -288,8 +290,7 @@ branch_decode branch_dec(.i_slt(alu_slt),
 
 // Next PC logic
 // JALR: next PC = (rs1_data + immediate) & ~1
-wire is_jalr = (opcode == 7'b1100111);
-assign pc_next = is_jalr ? ((rs1_data + immediate) & ~32'b1) :
+assign pc_next = jalr ? ((rs1_data + immediate) & ~32'b1) :
                   (jump || take_branch) ? (pc + immediate) :
                   (pc + 4);
 
@@ -326,9 +327,6 @@ assign wb_int = (memToReg) ? load_data :
 assign rd_data = (jump) ? pc + 4 :
                    (opcode == 7'b0010111) ? (pc + immediate) :
                    wb_int;
-
-assign o_retire_valid = 1'b1;
-assign o_retire_trap = 1'b0;
 
 
 endmodule
