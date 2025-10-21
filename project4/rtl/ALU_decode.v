@@ -68,7 +68,7 @@ module alu_decode(
                             o_sub = 1'b0; // srl
                         end
                         o_unsigned = 1'b0;
-                        o_arith = 1'b0;
+                        o_arith = i_funct7[5]; // SRA/SRAI: set o_arith for arithmetic right shift
                     end
                     3'b110: begin // or
                         o_opsel =i_funct3;
@@ -98,6 +98,8 @@ module alu_decode(
             end
         endcase
     end
+
+
 
 	
 endmodule

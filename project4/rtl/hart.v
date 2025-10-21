@@ -132,7 +132,7 @@ module hart #(
 );
 
 reg [31:0] pc;
-reg [31:0] pc_next;
+wire [31:0] pc_next;
 wire [31:0] curr_instruction;
 
 // Instruction fields
@@ -177,6 +177,9 @@ wire        alu_slt;
 
 // Branch signal
 wire take_branch;
+
+// Writeback signal
+wire [31:0] wb_int;
 
 // PC
 always @(posedge i_clk) begin
@@ -223,9 +226,9 @@ control_decode control(.i_opcode(opcode),
 assign o_dmem_ren = memRead;
 assign o_dmem_wen = memWrite;
 
-assign o_retire_rs1_raddr = (format[5] || format[4]) ? 5'd0 : rs1;  // Zero if U-type or J-type
+assign o_retire_rs1_raddr = (opcode == 7'b1101111) ? rs1 : ((format[5] || format[4]) ? 5'd0 : rs1); // JAL: x31, else original logic
 assign o_retire_rs2_raddr = (format[0] || format[2] || format[3]) ? rs2 : 5'd0;  // Only R-type, S-type, B-type read rs2
-assign o_retire_rd_waddr  = (format[5] || format[4]) ? 5'd0 : rd;  // Zero if U-type or J-type
+assign o_retire_rd_waddr  = (format[2] || format[3]) ? 5'd0 : rd;  // Zero if S or B-type
 
 // Register file
 rf rf(.i_clk(i_clk),
@@ -284,19 +287,45 @@ branch_decode branch_dec(.i_slt(alu_slt),
                          );
 
 // Next PC logic
-assign pc_next = (jump || take_branch) ? (pc + immediate) : (pc + 4);
+// JALR: next PC = (rs1_data + immediate) & ~1
+wire is_jalr = (opcode == 7'b1100111);
+assign pc_next = is_jalr ? ((rs1_data + immediate) & ~32'b1) :
+                  (jump || take_branch) ? (pc + immediate) :
+                  (pc + 4);
 
 // Data memory interface
-assign o_dmem_addr = alu_result;
-assign o_dmem_wdata = rs2_data;
-assign o_dmem_mask = (funct3 == 3'b000) ? (4'b0001 << alu_result[1:0]) : // byte
-                      (funct3 == 3'b001) ? (4'b0011 << {alu_result[1], 1'b0}) : // half-word
-                      4'b1111; // word
+assign o_dmem_addr = {alu_result[31:2], 2'b00};
+// Store data placement for SB/SH/SW
+assign o_dmem_wdata = (funct3 == 3'b000 || funct3 == 3'b100) ? // SB/SBU
+    (rs2_data[7:0] << (8 * alu_result[1:0])) :
+    (funct3 == 3'b001 || funct3 == 3'b101) ? // SH/SHU
+    (alu_result[1] ? ({{16{rs2_data[15]}}, rs2_data[15:0]} << 16) : {{16{rs2_data[15]}}, rs2_data[15:0]}) :
+    rs2_data; // SW
+// Mask logic for loads and stores
+assign o_dmem_mask = (funct3 == 3'b000 || funct3 == 3'b100) ? (4'b0001 << alu_result[1:0]) : // LB/LBU/SB
+                      (funct3 == 3'b001 || funct3 == 3'b101) ? (4'b0011 << {alu_result[1], 1'b0}) : // LH/LHU/SH
+                      4'b1111; // LW/SW
 
 // Writeback data selection
-assign rd_data = (memToReg) ? i_dmem_rdata : 
+// Sign/zero extension for loads
+wire [31:0] load_data;
+assign load_data = (funct3 == 3'b000) ? // LB
+    {{24{i_dmem_rdata[7 + 8*alu_result[1:0]]}}, i_dmem_rdata[8*alu_result[1:0]+:8]} :
+    (funct3 == 3'b001) ? // LH
+    (alu_result[1] ? {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]} : {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]}) :
+    (funct3 == 3'b100) ? // LBU
+    {24'b0, i_dmem_rdata[8*alu_result[1:0]+:8]} :
+    (funct3 == 3'b101) ? // LHU
+    (alu_result[1] ? {16'b0, i_dmem_rdata[31:16]} : {16'b0, i_dmem_rdata[15:0]}) :
+    i_dmem_rdata;
+
+assign wb_int = (memToReg) ? load_data : 
                   (lui) ? immediate :
                   alu_result;
+
+assign rd_data = (jump) ? pc + 4 :
+                   (opcode == 7'b0010111) ? (pc + immediate) :
+                   wb_int;
 
 assign o_retire_valid = 1'b1;
 assign o_retire_trap = 1'b0;

@@ -10,7 +10,7 @@ module control_decode(
     // aluOP is 00 for load/store, 01 for branch, 10 for R-type, 11 for I-type
     output reg [1:0] o_aluOp,
     output reg       o_lui,
-    output reg [5:0] o_format
+    output wire [5:0] o_format
 );
 
     always @(*) begin
