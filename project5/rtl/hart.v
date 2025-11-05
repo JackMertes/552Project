@@ -170,12 +170,12 @@ wire [31:0] pc_next;
 wire [31:0] curr_instruction;
 
 // Instruction fields
-wire [6:0] opcode;
-wire [4:0] rd;
-wire [4:0] rs1;
-wire [4:0] rs2;
-wire [2:0] funct3;
-wire [6:0] funct7;
+wire [6:0] if_id_opcode;
+wire [4:0] if_id_rd;
+wire [4:0] if_id_rs1;
+wire [4:0] if_id_rs2;
+wire [2:0] if_id_funct3;
+wire [6:0] if_id_funct7;
 
 // Control signals
 wire        branch;
@@ -189,6 +189,7 @@ wire        jump;
 wire [1:0]  aluOp;
 wire        lui;
 wire [5:0]  format;
+wire        auipc;
 
 // Register file signals
 wire [31:0] rs1_data;
@@ -216,6 +217,56 @@ wire take_branch;
 // Writeback signal
 wire [31:0] wb_int;
 
+// IF/ID Pipeline Stage
+reg [31:0] if_id_pc;
+reg [31:0] if_id_instruction;
+reg [31:0] if_id_pc_inc;
+reg if_id_valid;
+
+// ID/EX Pipeline Stage
+reg [31:0] id_ex_pc;
+reg [31:0] id_ex_instruction;
+reg [31:0] id_ex_pc_inc;
+reg id_ex_branch, id_ex_jalr, id_ex_memRead, id_ex_memToReg,
+    id_ex_memWrite, id_ex_aluSrc, id_ex_regWrite, id_ex_jump, id_ex_lui, id_ex_auipc;
+reg [1:0] id_ex_aluOp;
+reg [32:0] id_ex_rs1_data, id_ex_rs2_data;
+reg [31:0] id_ex_immediate;
+reg [31:0] id_ex_rd_waddr;
+reg [5:0] id_ex_format;
+reg id_ex_valid;
+
+// EX/MEM Pipeline Stage
+reg [31:0] ex_mem_pc;
+reg [31:0] ex_mem_instruction;
+reg [31:0] ex_mem_pc_inc;
+reg ex_mem_branch, ex_mem_jalr, ex_mem_memRead, ex_mem_memToReg,
+    ex_mem_memWrite, ex_mem_regWrite, ex_mem_jump, ex_mem_lui, ex_mem_auipc;
+reg [31:0] ex_mem_pc_imm;
+reg [31:0] ex_mem_alu_result;
+reg [31:0] ex_mem_rs1_data;
+reg [31:0] ex_mem_rs2_data;
+reg [31:0] ex_mem_rd_waddr;
+reg [31:0] ex_mem_immediate;
+reg ex_mem_slt, ex_mem_eq;
+reg [5:0] ex_mem_format;
+reg ex_mem_valid;
+
+// MEM/WB Pipeline Stage
+reg [31:0] mem_wb_pc_imm;
+reg [31:0] mem_wb_pc_inc;
+reg [31:0] mem_wb_alu_result;
+reg [31:0] mem_wb_dmem_rdata;
+reg [31:0] mem_wb_rd_waddr;
+reg [31:0] mem_wb_instruction;
+reg mem_wb_memToReg, mem_wb_regWrite, mem_wb_lui, mem_wb_jump, mem_wb_auipc;
+reg [5:0] mem_wb_format;
+reg [31:0] mem_wb_pc;
+reg [31:0] mem_wb_pc_next;
+reg [31:0] mem_wb_rs1_data;
+reg [31:0] mem_wb_rs2_data;
+reg mem_wb_valid;
+
 // PC
 always @(posedge i_clk) begin
     if(i_rst)
@@ -224,33 +275,35 @@ always @(posedge i_clk) begin
         pc <= pc_next;
 end
 
-// Retire interface
-assign o_retire_valid = 1'b1; //always retiring because single cycle
-assign o_retire_inst = curr_instruction;
-assign o_retire_trap = 1'b0; //assert if illegal instruction. All tests pass with 1'b0 right now
-assign o_retire_halt = (curr_instruction == 32'h00100073) ? 1'b1 : 1'b0; //ebreak
-
-assign o_retire_rs1_raddr = (opcode == 7'b1101111) ? rs1 : ((format[5] || format[4]) ? 5'd0 : rs1); // JAL: x31, else original logic
-assign o_retire_rs2_raddr = (format[0] || format[2] || format[3]) ? rs2 : 5'd0;  // Only R-type, S-type, B-type read rs2
-assign o_retire_rs1_rdata = (format[5] || format[4]) ? 32'd0 : rs1_data;  // Zero if U-type or J-type
-assign o_retire_rs2_rdata = (format[0] || format[2] || format[3]) ? rs2_data : 32'd0;  // Only R-type, S-type, B-type read rs2
-assign o_retire_rd_waddr  = (format[2] || format[3]) ? 5'd0 : rd;  // Zero if S or B-type
-assign o_retire_rd_wdata  = rd_data;
-
-assign o_retire_pc = pc;
-assign o_retire_next_pc = pc_next;
-
 // instruction memory read
 assign o_imem_raddr = pc;
 assign curr_instruction = i_imem_rdata;
 
+// IF/ID Pipeline
+always @(posedge i_clk, posedge i_rst) begin
+    if(i_rst) begin
+        if_id_pc <= 32'd0;
+        if_id_instruction <= 32'd0;
+        if_id_pc_inc <= 32'd0;
+        if_id_valid <= 1'b0;
+    end
+    else begin
+        if_id_pc <= pc;
+        if_id_instruction <= curr_instruction;
+        if_id_pc_inc <= pc + 4;
+        if (curr_instruction != 32'0x00000013) begin
+            if_id_valid <= 1'b1;
+        end
+    end
+end
+
 // Decode instruction fields
-assign opcode = curr_instruction[6:0];
-assign rd     = curr_instruction[11:7];
-assign funct3 = curr_instruction[14:12];
-assign rs1    = curr_instruction[19:15];
-assign rs2    = curr_instruction[24:20];
-assign funct7 = curr_instruction[31:25];
+assign if_id_opcode = if_id_instruction[6:0];
+assign if_id_rd     = if_id_instruction[11:7];
+assign if_id_funct3 = if_id_instruction[14:12];
+assign if_id_rs1    = if_id_instruction[19:15];
+assign if_id_rs2    = if_id_instruction[24:20];
+assign if_id_funct7 = if_id_instruction[31:25];
 
 // Control modules
 control_decode control(.i_opcode(opcode), 
@@ -264,35 +317,84 @@ control_decode control(.i_opcode(opcode),
                        .o_jump(jump), 
                        .o_aluOp(aluOp), 
                        .o_lui(lui), 
+                       .o_auipc(auipc),
                        .o_format(format)
                        );
 
-assign o_dmem_ren = memRead;
-assign o_dmem_wen = memWrite;
+assign o_dmem_ren = ex_mem_memRead;
+assign o_dmem_wen = ex_mem_memWrite;
 
 // Register file
 rf rf(.i_clk(i_clk),
         .i_rst(i_rst),
-        .i_rs1_raddr(rs1),
+        .i_rs1_raddr(if_id_rs1),
         .o_rs1_rdata(rs1_data),
-        .i_rs2_raddr(rs2),
+        .i_rs2_raddr(if_id_rs2),
         .o_rs2_rdata(rs2_data),
-        .i_rd_wen(regWrite),
-        .i_rd_waddr(rd),
+        .i_rd_wen(mem_wb_regWrite),
+        .i_rd_waddr(mem_wb_rd_waddr),
         .i_rd_wdata(rd_data)
         );
 
 
 // Immediate generation
-imm imm(.i_inst(curr_instruction),
+imm imm(.i_inst(if_id_instruction),
             .i_format(format),
             .o_immediate(immediate)
             );
 
+// ID/EX Pipeline Stage
+always @(posedge i_clk, posedge i_rst) begin
+    if(i_rst) begin
+        id_ex_pc <= 32'd0;
+        id_ex_instruction <= 32'd0;
+        id_ex_pc_inc <= 32'd0;
+        id_ex_branch <= 1'b0;
+        id_ex_jalr <= 1'b0;
+        id_ex_memRead <= 1'b0;
+        id_ex_memToReg <= 1'b0;
+        id_ex_memWrite <= 1'b0;
+        id_ex_aluSrc <= 1'b0;
+        id_ex_regWrite <= 1'b0;
+        id_ex_jump <= 1'b0;
+        id_ex_aluOp <= 2'b00;
+        id_ex_lui <= 1'b0;
+        id_ex_auipc <= 1'b0;
+        id_ex_rs1_data <= 32'd0;
+        id_ex_rs2_data <= 32'd0;
+        id_ex_immediate <= 32'd0;
+        id_ex_rd_waddr <= 5'd0;
+        id_ex_format <= 6'd0;
+        id_ex_valid <= 1'b0;
+    end
+    else begin
+        id_ex_pc <= if_id_pc;
+        id_ex_instruction <= if_id_instruction;
+        id_ex_pc_inc <= if_id_pc_inc;
+        id_ex_branch <= branch;
+        id_ex_jalr <= jalr;
+        id_ex_memRead <= memRead;
+        id_ex_memToReg <= memToReg;
+        id_ex_memWrite <= memWrite;
+        id_ex_aluSrc <= aluSrc;
+        id_ex_regWrite <= regWrite;
+        id_ex_jump <= jump;
+        id_ex_aluOp <= aluOp;
+        id_ex_lui <= lui;
+        id_ex_auipc <= auipc;
+        id_ex_rs1_data <= rs1_data;
+        id_ex_rs2_data <= rs2_data;
+        id_ex_immediate <= immediate;
+        id_ex_rd_waddr <= if_id_rd;
+        id_ex_format <= format;
+        id_ex_valid <= if_id_valid;
+    end
+end
+
 // ALU instruction decoder
-alu_decode alu_decode(.i_ALUOp(aluOp),
-                      .i_funct3(funct3),
-                      .i_funct7(funct7),
+alu_decode alu_decode(.i_ALUOp(id_ex_aluOp),
+                      .i_funct3(id_ex_instruction[14:12]),
+                      .i_funct7(id_ex_instruction[31:25]),
                       .o_opsel(opsel),
                       .o_sub(sub),
                       .o_unsigned(u_unsigned),
@@ -304,7 +406,7 @@ alu alu(.i_opsel(opsel),
         .i_sub(sub),
         .i_unsigned(u_unsigned),
         .i_arith(arith),
-        .i_op1(rs1_data),
+        .i_op1(id_ex_rs1_data),
         .i_op2(alu_op2),
         .o_result(alu_result),
         .o_eq(alu_eq),
@@ -312,55 +414,162 @@ alu alu(.i_opsel(opsel),
         );
 
 // ALU operand 2 selection
-assign alu_op2 = (aluSrc) ? immediate : rs2_data;
+assign alu_op2 = (id_ex_aluSrc) ? id_ex_immediate : id_ex_rs2_data;
 
+// EX/MEM Pipeline Stage
+always @(posedge i_clk, posedge i_rst) begin
+    if (i_rst) begin
+        ex_mem_pc <= 32'd0;
+        ex_mem_instruction <= 32'd0;
+        ex_mem_pc_inc <= 32'd0;
+        ex_mem_branch <= 1'b0;
+        ex_mem_jalr <= 1'b0;
+        ex_mem_memRead <= 1'b0;
+        ex_mem_memToReg <= 1'b0;
+        ex_mem_memWrite <= 1'b0;
+        ex_mem_regWrite <= 1'b0;
+        ex_mem_jump <= 1'b0;
+        ex_mem_lui <= 1'b0;
+        ex_mem_auipc <= 1'b0;
+        ex_mem_alu_result <= 32'd0;
+        ex_mem_rs1_data <= 32'd0;
+        ex_mem_rs2_data <= 32'd0;
+        ex_mem_rd_waddr <= 5'd0;
+        ex_mem_pc_imm <= 32'd0;
+        ex_mem_slt <= 1'b0;
+        ex_mem_eq <= 1'b0;
+        ex_mem_format <= 6'd0;
+        ex_mem_valid <= 1'b0;
+    end
+    else begin
+        ex_mem_pc <= id_ex_pc;
+        ex_mem_instruction <= id_ex_instruction;
+        ex_mem_pc_inc <= id_ex_pc_inc;
+        ex_mem_branch <= id_ex_branch;
+        ex_mem_jalr <= id_ex_jalr;
+        ex_mem_memRead <= id_ex_memRead;
+        ex_mem_memToReg <= id_ex_memToReg;
+        ex_mem_memWrite <= id_ex_memWrite;
+        ex_mem_regWrite <= id_ex_regWrite;
+        ex_mem_jump <= id_ex_jump;
+        ex_mem_lui <= id_ex_lui;
+        ex_mem_auipc <= id_ex_auipc;
+        ex_mem_alu_result <= alu_result;
+        ex_mem_rs1_data <= id_ex_rs1_data;
+        ex_mem_rs2_data <= id_ex_rs2_data;
+        ex_mem_rd_waddr <= id_ex_rd_waddr;
+        ex_mem_pc_imm <= id_ex_immediate + id_ex_pc;
+        ex_mem_slt <= alu_slt;
+        ex_mem_eq <= alu_eq;
+        ex_mem_branch <= id_ex_branch;
+        ex_mem_format <= id_ex_format;
+        ex_mem_valid <= id_ex_valid;
+    end
+end
 // Branch decode
-branch_decode branch_dec(.i_slt(alu_slt),
-                         .i_funct3(funct3),
-                         .i_eq(alu_eq),
-                         .i_branch(branch),
+branch_decode branch_dec(.i_slt(ex_mem_slt),
+                         .i_funct3(ex_mem_instruction[14:12]),
+                         .i_eq(ex_mem_eq),
+                         .i_branch(ex_mem_branch),
                          .o_take_branch(take_branch)
                          );
 
 // Next PC logic
 // JALR: next PC = (rs1_data + immediate) & ~1
-assign pc_next = jalr ? ((rs1_data + immediate) & ~32'b1) :
-                  (jump || take_branch) ? (pc + immediate) :
-                  (pc + 4);
+assign pc_next = (ex_mem_jalr) ? ex_mem_alu_result & 32'hfffffffe : 
+                 (ex_mem_jump || take_branch) ? ex_mem_pc_imm :
+                 ex_mem_pc_inc;
 
 // Data memory interface
-assign o_dmem_addr = {alu_result[31:2], 2'b00};
+assign o_dmem_addr = {ex_mem_alu_result[31:2], 2'b00};
 // Store data placement for SB/SH/SW
-assign o_dmem_wdata = (funct3 == 3'b000 || funct3 == 3'b100) ? // SB/SBU
-    (rs2_data[7:0] << (8 * alu_result[1:0])) :
-    (funct3 == 3'b001 || funct3 == 3'b101) ? // SH/SHU
-    (alu_result[1] ? ({{16{rs2_data[15]}}, rs2_data[15:0]} << 16) : {{16{rs2_data[15]}}, rs2_data[15:0]}) :
-    rs2_data; // SW
+assign o_dmem_wdata = (ex_mem_instruction[14:12] == 3'b000 || ex_mem_instruction[14:12] == 3'b100) ? // SB/SBU
+    (ex_mem_rs2_data[7:0] << (8 * ex_mem_alu_result[1:0])) :
+    (ex_mem_instruction[14:12] == 3'b001 || ex_mem_instruction[14:12] == 3'b101) ? // SH/SHU
+    (ex_mem_alu_result[1] ? ({{16{ex_mem_rs2_data[15]}}, ex_mem_rs2_data[15:0]} << 16) : {{16{ex_mem_rs2_data[15]}}, ex_mem_rs2_data[15:0]}) :
+    ex_mem_rs2_data; // SW
 // Mask logic for loads and stores
-assign o_dmem_mask = (funct3 == 3'b000 || funct3 == 3'b100) ? (4'b0001 << alu_result[1:0]) : // LB/LBU/SB
-                      (funct3 == 3'b001 || funct3 == 3'b101) ? (4'b0011 << {alu_result[1], 1'b0}) : // LH/LHU/SH
+assign o_dmem_mask = (ex_mem_instruction[14:12] == 3'b000 || ex_mem_instruction[14:12] == 3'b100) ? (4'b0001 << ex_mem_alu_result[1:0]) : // LB/LBU/SB
+                      (ex_mem_instruction[14:12] == 3'b001 || ex_mem_instruction[14:12] == 3'b101) ? (4'b0011 << {ex_mem_alu_result[1], 1'b0}) : // LH/LHU/SH
                       4'b1111; // LW/SW
 
 // Writeback data selection
 // Sign/zero extension for loads
 wire [31:0] load_data;
-assign load_data = (funct3 == 3'b000) ? // LB
-    {{24{i_dmem_rdata[7 + 8*alu_result[1:0]]}}, i_dmem_rdata[8*alu_result[1:0]+:8]} :
-    (funct3 == 3'b001) ? // LH
-    (alu_result[1] ? {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]} : {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]}) :
-    (funct3 == 3'b100) ? // LBU
-    {24'b0, i_dmem_rdata[8*alu_result[1:0]+:8]} :
-    (funct3 == 3'b101) ? // LHU
-    (alu_result[1] ? {16'b0, i_dmem_rdata[31:16]} : {16'b0, i_dmem_rdata[15:0]}) :
+assign load_data = (ex_mem_instruction[14:12] == 3'b000) ? // LB
+    {{24{i_dmem_rdata[7 + 8*ex_mem_alu_result[1:0]]}}, i_dmem_rdata[8*ex_mem_alu_result[1:0]+:8]} :
+    (ex_mem_instruction[14:12] == 3'b001) ? // LH
+    (ex_mem_alu_result[1] ? {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]} : {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]}) :
+    (ex_mem_instruction[14:12] == 3'b100) ? // LBU
+    {24'b0, i_dmem_rdata[8*ex_mem_alu_result[1:0]+:8]} :
+    (ex_mem_instruction[14:12] == 3'b101) ? // LHU
+    (ex_mem_alu_result[1] ? {16'b0, i_dmem_rdata[31:16]} : {16'b0, i_dmem_rdata[15:0]}) :
     i_dmem_rdata;
 
-assign wb_int = (memToReg) ? load_data : 
-                  (lui) ? immediate :
+// MEM/WB Pipeline Stage
+always @(posedge i_clk, posedge i_rst) begin
+    if(i_rst) begin
+        mem_wb_pc <= 32'd0;
+        mem_wb_pc_next <= 32'd0;
+        mem_wb_pc_imm <= 32'd0;
+        mem_wb_alu_result <= 32'd0;
+        mem_wb_dmem_rdata <= 32'd0;
+        mem_wb_rd_waddr <= 5'd0;
+        mem_wb_instruction <= 32'd0;
+        mem_wb_memToReg <= 1'b0;
+        mem_wb_regWrite <= 1'b0;
+        mem_wb_lui <= 1'b0;
+        mem_wb_jump <= 1'b0;
+        mem_wb_auipc <= 1'b0;
+        mem_wb_format <= 6'd0;
+        mem_wb_rs1_data <= 32'd0;
+        mem_wb_rs2_data <= 32'd0;
+        mem_wb_valid <= 1'b0;
+    end
+    else begin
+        mem_wb_pc <= ex_mem_pc;
+        mem_wb_pc_next <= pc_next;
+        mem_wb_pc_imm <= ex_mem_pc_imm;
+        mem_wb_pc_inc <= ex_mem_pc_inc;
+        mem_wb_alu_result <= ex_mem_alu_result;
+        mem_wb_dmem_rdata <= load_data;
+        mem_wb_rd_waddr <= ex_mem_rd_waddr;
+        mem_wb_instruction <= ex_mem_instruction;
+        mem_wb_memToReg <= ex_mem_memToReg;
+        mem_wb_regWrite <= ex_mem_regWrite;
+        mem_wb_lui <= ex_mem_lui;
+        mem_wb_jump <= ex_mem_jump;
+        mem_wb_auipc <= ex_mem_auipc;
+        mem_wb_format <= ex_mem_format;
+        mem_wb_rs1_data <= ex_mem_rs1_data;
+        mem_wb_rs2_data <= ex_mem_rs2_data;
+        mem_wb_valid <= ex_mem_valid;
+    end
+end
+
+assign wb_int = (mem_wb_memToReg) ? load_data : 
+                  (mem_wb_lui) ? immediate :
                   alu_result;
 
-assign rd_data = (jump) ? pc + 4 :
-                   (opcode == 7'b0010111) ? (pc + immediate) :
+assign rd_data = (mem_wb_jump) ? mem_wb_pc_inc :
+                   (mem_wb_auipc) ? (pc + immediate) :
                    wb_int;
+
+// Retire interface
+assign o_retire_valid = mem_wb_valid; //always retiring because single cycle
+assign o_retire_inst = mem_wb_instruction;
+assign o_retire_trap = 1'b0; //assert if illegal instruction. All tests pass with 1'b0 right now
+assign o_retire_halt = (mem_wb_instruction == 32'h00100073) ? 1'b1 : 1'b0; //ebreak
+
+assign o_retire_rs1_raddr = (mem_wb_instruction[6:0] == 7'b1101111) ? mem_wb_instruction[11:7] : ((mem_wb_format[5] || mem_wb_format[4]) ? 5'd0 : mem_wb_instruction[11:7]); // JAL: x31, else original logic
+assign o_retire_rs2_raddr = (mem_wb_format[0] || mem_wb_format[2] || mem_wb_format[3]) ? mem_wb_instruction[11:7] : 5'd0;  // Only R-type, S-type, B-type read rs2
+assign o_retire_rs1_rdata = (mem_wb_format[5] || mem_wb_format[4]) ? 32'd0 : mem_wb_rs1_data;  // Zero if U-type or J-type
+assign o_retire_rs2_rdata = (mem_wb_format[0] || mem_wb_format[2] || mem_wb_format[3]) ? mem_wb_rs2_data : 32'd0;  // Only R-type, S-type, B-type read rs2
+assign o_retire_rd_waddr  = (mem_wb_format[2] || mem_wb_format[3]) ? 5'd0 : mem_wb_rd_waddr;  // Zero if S or B-type
+assign o_retire_rd_wdata  = rd_data;
+
+assign o_retire_pc = mem_wb_pc;
+assign o_retire_next_pc = mem_wb_pc_next;
 
 
 endmodule

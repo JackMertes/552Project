@@ -12,6 +12,7 @@ module control_decode(
     output wire       o_jump,
     output wire [1:0] o_aluOp,
     output wire       o_lui,
+    output wire       o_auipc,
     output wire [5:0] o_format
 );
 
@@ -36,6 +37,7 @@ module control_decode(
     assign o_regWrite = is_rtype | is_itype | is_load | is_lui | is_auipc | is_jal;
     assign o_jump     = is_jal;
     assign o_lui      = is_lui;
+    assign o_auipc    = is_auipc;
 
     // ALUOp encoding
     // 00 = load/store/AUIPC/JAL, 01 = branch, 10 = R-type, 11 = I-type

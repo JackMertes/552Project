@@ -110,7 +110,7 @@ module hart_tb ();
         cycles = 0;
         run = 1;
         num_instructions = 0;
-        while (run) begin
+        while (run && cycles < 100) begin
             @(posedge clk);
             cycles = cycles + 1;
 
