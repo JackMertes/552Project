@@ -271,8 +271,6 @@ reg [ 3:0] mem_wb_dmem_mask;
 reg [31:0] mem_wb_dmem_rdata;
 reg [31:0] mem_wb_dmem_wdata;
 reg [31:0] mem_wb_load_data;
-reg        mem_wb_was_forwarded;        // Did this load use forwarded data?
-reg [31:0] mem_wb_forwarded_raw_data;   // The raw forwarded data (if forwarded)
 
 // ============================================================
 // ID stage: instruction fields and control
@@ -307,8 +305,6 @@ wire [31:0] rs2_data;
 
 wire [31:0] rd_data;
 wire [31:0] immediate;
-wire [31:0] ex_alu_result;
-
 
 // ============================================================
 // Hazard Detection and Forwarding
@@ -339,19 +335,11 @@ assign forward_b =
      !(ex_mem_valid && ex_mem_regWrite && (ex_mem_rd != 5'd0) && (ex_mem_rd == id_ex_rs2))) ? 2'b10 :
     2'b00;
 
-// Store-load memory hazard: Check if a load in EX would read from same address as a store in MEM/WB
-// but we can't fully forward (masks don't match exactly or don't cover all bytes)
-wire [31:0] id_ex_load_addr = {ex_alu_result[31:2], 2'b00};
-wire store_in_mem_conflicts = ex_mem_valid && ex_mem_memWrite && id_ex_valid && id_ex_memRead &&
-                               ({ex_mem_alu_result[31:2], 2'b00} == id_ex_load_addr);
-
 // Load-use hazard detection
 // Stall if instruction in EX is a load and instruction in ID uses the loaded value
-// Also stall if there's a store in MEM that conflicts with a load in EX (can't forward from MEM)
-assign stall = (id_ex_memRead && id_ex_valid && if_id_valid &&
+assign stall = id_ex_memRead && id_ex_valid && if_id_valid &&
                ((id_ex_rd == rs1 && rs1 != 5'd0) || 
-                (id_ex_rd == rs2 && rs2 != 5'd0))) ||
-               store_in_mem_conflicts;
+                (id_ex_rd == rs2 && rs2 != 5'd0));
 
 // ============================================================
 // EX stage wires
@@ -361,6 +349,7 @@ wire [31:0] ex_alu_op1_fwd;  // Forwarded operand 1
 wire [31:0] ex_alu_op2_fwd;  // Forwarded operand 2 (before aluSrc mux)
 
 wire [31:0] ex_alu_op2;
+wire [31:0] ex_alu_result;
 wire        ex_alu_eq;
 wire        ex_alu_slt;
 
@@ -571,46 +560,42 @@ assign load_data_mem =
         i_dmem_rdata;
 
 // Store-to-load forwarding: if there's a store in WB stage and a load in MEM stage
-// to the same address, we need to merge the forwarded bytes with memory data.
-// Check if addresses match and there's any byte overlap
-wire mem_store_addr_match = ex_mem_memRead && mem_wb_memWrite && (dmem_addr == mem_wb_dmem_addr);
-wire [3:0] byte_overlap = dmem_mask & mem_wb_dmem_mask;  // Which bytes were written and are being read
-wire mem_store_has_overlap = mem_store_addr_match && (byte_overlap != 4'b0000);
+// to the same address, forward the store data instead of using memory data.
+// We forward if the addresses match AND all bytes being loaded were written by the store
+// (i.e., the load mask is a subset of the store mask).
+wire mem_store_to_load_fwd = 
+    ex_mem_memRead && mem_wb_memWrite && 
+    (dmem_addr == mem_wb_dmem_addr) &&
+    ((dmem_mask & mem_wb_dmem_mask) == dmem_mask);  // All loaded bytes were written
 
-// Merge forwarded store data with memory data byte-by-byte
-// For each byte: if it was written by the store, use forwarded data; otherwise use memory
-wire [31:0] merged_raw_data = 
-    {byte_overlap[3] ? mem_wb_dmem_wdata[31:24] : i_dmem_rdata[31:24],
-     byte_overlap[2] ? mem_wb_dmem_wdata[23:16] : i_dmem_rdata[23:16],
-     byte_overlap[1] ? mem_wb_dmem_wdata[15:8]  : i_dmem_rdata[15:8],
-     byte_overlap[0] ? mem_wb_dmem_wdata[7:0]   : i_dmem_rdata[7:0]};
-
-// Apply load extraction logic to merged data
-wire [31:0] load_data_merged =
-    (ex_mem_funct3 == 3'b000) ? // LB
-        {{24{merged_raw_data[7 + 8*ex_mem_alu_result[1:0]]}},
-         merged_raw_data[8*ex_mem_alu_result[1:0]+:8]} :
-    (ex_mem_funct3 == 3'b001) ? // LH
-        (ex_mem_alu_result[1]
-            ? {{16{merged_raw_data[31]}}, merged_raw_data[31:16]}
-            : {{16{merged_raw_data[15]}}, merged_raw_data[15:0]}) :
-    (ex_mem_funct3 == 3'b100) ? // LBU
-        {24'b0, merged_raw_data[8*ex_mem_alu_result[1:0]+:8]} :
-    (ex_mem_funct3 == 3'b101) ? // LHU
-        (ex_mem_alu_result[1]
-            ? {16'b0, merged_raw_data[31:16]}
-            : {16'b0, merged_raw_data[15:0]}) :
-        merged_raw_data;
-
-// Extract just the forwarded bytes (for retire interface)
+// Extract the actual bytes that were written based on the mask
+// Memory only stores the masked bytes, so we need to reconstruct what memory contains
 wire [31:0] forwarded_raw_data = 
     {mem_wb_dmem_mask[3] ? mem_wb_dmem_wdata[31:24] : 8'h00,
      mem_wb_dmem_mask[2] ? mem_wb_dmem_wdata[23:16] : 8'h00,
      mem_wb_dmem_mask[1] ? mem_wb_dmem_wdata[15:8]  : 8'h00,
      mem_wb_dmem_mask[0] ? mem_wb_dmem_wdata[7:0]   : 8'h00};
 
-// Select data: use merged data if there's any overlap, otherwise pure memory
-wire [31:0] load_data_final = mem_store_has_overlap ? load_data_merged : load_data_mem;
+// Apply same load extraction logic to forwarded data
+wire [31:0] load_data_fwd =
+    (ex_mem_funct3 == 3'b000) ? // LB
+        {{24{forwarded_raw_data[7 + 8*ex_mem_alu_result[1:0]]}},
+         forwarded_raw_data[8*ex_mem_alu_result[1:0]+:8]} :
+    (ex_mem_funct3 == 3'b001) ? // LH
+        (ex_mem_alu_result[1]
+            ? {{16{forwarded_raw_data[31]}}, forwarded_raw_data[31:16]}
+            : {{16{forwarded_raw_data[15]}}, forwarded_raw_data[15:0]}) :
+    (ex_mem_funct3 == 3'b100) ? // LBU
+        {24'b0, forwarded_raw_data[8*ex_mem_alu_result[1:0]+:8]} :
+    (ex_mem_funct3 == 3'b101) ? // LHU
+        (ex_mem_alu_result[1]
+            ? {16'b0, forwarded_raw_data[31:16]}
+            : {16'b0, forwarded_raw_data[15:0]}) :
+        forwarded_raw_data;
+
+// Select between forwarded and memory data
+wire [31:0] load_data_raw = mem_store_to_load_fwd ? forwarded_raw_data : i_dmem_rdata;
+wire [31:0] load_data_final = mem_store_to_load_fwd ? load_data_fwd : load_data_mem;
 
 assign o_dmem_addr  = dmem_addr;
 assign o_dmem_wdata = dmem_wdata;
@@ -705,8 +690,6 @@ always @(posedge i_clk) begin
         mem_wb_dmem_rdata<=32'd0;
         mem_wb_dmem_wdata<=32'd0;
         mem_wb_load_data<=32'd0;
-        mem_wb_was_forwarded <= 1'b0;
-        mem_wb_forwarded_raw_data <= 32'd0;
 
     end else begin
         // PC update - pc_fetch tracks the address we're fetching from this cycle
@@ -841,13 +824,9 @@ always @(posedge i_clk) begin
         mem_wb_memWrite   <= ex_mem_memWrite;
         mem_wb_dmem_addr  <= dmem_addr;
         mem_wb_dmem_mask  <= dmem_mask;
-        mem_wb_dmem_rdata <= i_dmem_rdata;     // Capture raw memory output (will be valid next cycle)
-        // Only update store data when there's actually a store (preserve for forwarding)
-        if (ex_mem_memWrite && ex_mem_valid)
-            mem_wb_dmem_wdata <= dmem_wdata;
+        mem_wb_dmem_rdata <= load_data_raw;    // Raw data (with forwarding, before extension)
+        mem_wb_dmem_wdata <= dmem_wdata;
         mem_wb_load_data  <= load_data_final;  // Processed data (with sign/zero extension)
-        mem_wb_was_forwarded <= mem_store_has_overlap;  // Remember if we had any forwarding
-        mem_wb_forwarded_raw_data <= merged_raw_data;   // Save the merged raw data
     end
 end
 
@@ -882,8 +861,7 @@ assign o_retire_dmem_addr  = mem_wb_dmem_addr;
 assign o_retire_dmem_mask  = mem_wb_dmem_mask;
 assign o_retire_dmem_ren   = mem_wb_memRead;
 assign o_retire_dmem_wen   = mem_wb_memWrite;
-// Report forwarded data if forwarding occurred, otherwise use memory data
-assign o_retire_dmem_rdata = mem_wb_was_forwarded ? mem_wb_forwarded_raw_data : mem_wb_dmem_rdata;
+assign o_retire_dmem_rdata = mem_wb_dmem_rdata;  // Raw data (with forwarding, before extension)
 assign o_retire_dmem_wdata = mem_wb_dmem_wdata;
 
 assign o_retire_pc      = mem_wb_pc;
