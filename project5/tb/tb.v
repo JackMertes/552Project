@@ -110,7 +110,7 @@ module hart_tb ();
         cycles = 0;
         run = 1;
         num_instructions = 0;
-        while (run && cycles < 100) begin
+        while (run) begin
             @(posedge clk);
             cycles = cycles + 1;
 
@@ -155,7 +155,7 @@ module hart_tb ();
             $display("CPI: invalid (no instructions retired)");
         else
             $display("CPI: %f", cycles / (1.0 * num_instructions));
-        $finish;
+        $stop;
     end
 
     always
