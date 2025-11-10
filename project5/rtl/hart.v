@@ -752,10 +752,13 @@ assign o_retire_dmem_wdata = mem_wb_dmem_wdata;
 assign o_retire_pc      = mem_wb_pc;
 assign o_retire_next_pc = mem_wb_next_pc;
 
+wire [4:0] id_rs1_actual = (format[4] || format[5]) ? 5'd0 : rs1;
+wire [4:0] id_rs2_actual = (format[0] || format[2] || format[3]) ? rs2 : 5'd0;
+
 // Hazard detection unit
 hazard_unit hazard (
-    .i_id_rs1(rs1),
-    .i_id_rs2(rs2),
+    .i_id_rs1(id_rs1_actual),
+    .i_id_rs2(id_rs2_actual),
     .i_ex_rd(id_ex_rd),
     .i_ex_regWrite(id_ex_regWrite),
     .i_mem_rd(ex_mem_rd),
