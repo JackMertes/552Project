@@ -321,7 +321,7 @@ wire        ex_take_branch;
 // For PC-relative control transfers (branches/JAL), the target is PC + imm
 wire [31:0] ex_pc_plus4  = id_ex_pc + 32'd4;
 wire [31:0] ex_pc_branch = id_ex_pc + id_ex_imm;
-wire [31:0] ex_pc_jalr   = (id_ex_rs1_data + id_ex_imm) & ~32'b1;
+wire [31:0] ex_pc_jalr   = (forwarding_rs1_data + id_ex_imm) & ~32'b1;
 
 // Gate control with id_ex_valid
 wire ex_branch_taken = id_ex_valid && ex_take_branch;
@@ -675,8 +675,8 @@ always @(posedge i_clk) begin
         ex_mem_pc         <= id_ex_pc;
         ex_mem_next_pc    <= ex_next_pc;
         ex_mem_alu_result <= ex_alu_result;
-        ex_mem_rs1_data   <= id_ex_rs1_data;
-        ex_mem_rs2_data   <= id_ex_rs2_data;
+        ex_mem_rs1_data   <= forwarding_rs1_data;
+        ex_mem_rs2_data   <= forwarding_rs2_data;
         ex_mem_rs1        <= id_ex_rs1;
         ex_mem_rs2        <= id_ex_rs2;
         ex_mem_rd         <= id_ex_rd;
