@@ -433,14 +433,32 @@ alu_decode alu_dec (
     .o_arith  (ex_arith)
 );
 
-assign ex_alu_op2 = id_ex_aluSrc ? id_ex_imm : id_ex_rs2_data;
+wire [31:0] forwarding_rs1_data;
+wire [31:0] forwarding_rs2_data;
+
+assign ex_alu_op2 = id_ex_aluSrc ? id_ex_imm : forwarding_rs2_data;
+
+forwarding forwarding_inst(
+    .i_ex_mem_regWrite(ex_mem_regWrite),
+    .i_mem_wb_regWrite(mem_wb_regWrite),
+    .i_ex_mem_rd(ex_mem_rd),
+    .i_mem_wb_rd(mem_wb_rd),
+    .i_id_ex_rs1(id_ex_rs1),
+    .i_id_ex_rs2(id_ex_rs2),
+    .i_id_ex_rs1_data(id_ex_rs1_data),
+    .i_id_ex_rs2_data(id_ex_rs2_data),
+    .i_ex_mem_alu_result(ex_mem_alu_result),
+    .i_rd_data_int(rd_data_int),
+    .o_op1(forwarding_rs1_data),
+    .o_op2(forwarding_rs2_data)
+);
 
 alu alu_inst (
     .i_opsel   (ex_opsel),
     .i_sub     (ex_sub),
     .i_unsigned(ex_unsigned),
     .i_arith   (ex_arith),
-    .i_op1     (id_ex_rs1_data),
+    .i_op1     (forwarding_rs1_data),
     .i_op2     (ex_alu_op2),
     .o_result  (ex_alu_result),
     .o_eq      (ex_alu_eq),
@@ -758,12 +776,10 @@ wire [4:0] id_rs2_actual = (format[0] || format[2] || format[3]) ? rs2 : 5'd0;
 // Hazard detection unit - only check when IF/ID has a valid instruction
 // Also gate with valid signals from EX and MEM stages
 hazard_unit hazard (
-    .i_id_rs1(if_id_valid ? id_rs1_actual : 5'd0),
-    .i_id_rs2(if_id_valid ? id_rs2_actual : 5'd0),
-    .i_ex_rd(id_ex_valid ? id_ex_rd : 5'd0),
-    .i_ex_regWrite(id_ex_valid && id_ex_regWrite),
-    .i_mem_rd(ex_mem_valid ? ex_mem_rd : 5'd0),
-    .i_mem_regWrite(ex_mem_valid && ex_mem_regWrite),
+    .i_if_id_rs1(if_id_valid ? id_rs1_actual : 5'd0),
+    .i_if_id_rs2(if_id_valid ? id_rs2_actual : 5'd0),
+    .i_id_ex_rd(id_ex_valid ? id_ex_rd : 5'd0),
+    .i_id_ex_memRead(id_ex_valid && id_ex_memRead),
     .o_stall(stall)
 );
 
