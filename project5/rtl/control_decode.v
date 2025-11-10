@@ -33,9 +33,9 @@ module control_decode(
     assign o_memRead  = is_load;
     assign o_memToReg = is_load;
     assign o_memWrite = is_store;
-    assign o_aluSrc   = is_itype | is_load | is_store | is_lui | is_auipc | is_jal;
-    assign o_regWrite = is_rtype | is_itype | is_load | is_lui | is_auipc | is_jal;
-    assign o_jump     = is_jal;
+    assign o_aluSrc   = is_itype | is_load | is_store | is_lui | is_auipc | is_jal | is_jalr;
+    assign o_regWrite = is_rtype | is_itype | is_load | is_lui | is_auipc | is_jal | is_jalr;
+    assign o_jump     = is_jal | is_jalr;
     assign o_lui      = is_lui;
     assign o_auipc    = is_auipc;
 
@@ -50,7 +50,7 @@ module control_decode(
     // Format encoding (one-hot: R, I, S, B, U, J)
     assign o_format =
         (is_rtype)              ? 6'b000001 :
-        (is_itype | is_load)    ? 6'b000010 :
+        (is_itype | is_load | is_jalr) ? 6'b000010 :
         (is_store)              ? 6'b000100 :
         (is_branch)             ? 6'b001000 :
         (is_lui | is_auipc)     ? 6'b010000 :

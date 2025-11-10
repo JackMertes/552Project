@@ -412,7 +412,7 @@ rf rf_inst (
     .o_rs1_rdata(rs1_data),
     .i_rs2_raddr(rs2),
     .o_rs2_rdata(rs2_data),
-    .i_rd_wen   (mem_wb_regWrite),
+    .i_rd_wen   (mem_wb_valid && mem_wb_regWrite),
     .i_rd_waddr (mem_wb_rd),
     .i_rd_wdata (rd_data_int)
 );
@@ -480,8 +480,8 @@ assign dmem_mask =
 assign o_dmem_addr  = dmem_addr;
 assign o_dmem_wdata = dmem_wdata;
 assign o_dmem_mask  = dmem_mask;
-assign o_dmem_ren   = ex_mem_memRead;
-assign o_dmem_wen   = ex_mem_memWrite;
+assign o_dmem_ren   = ex_mem_valid && ex_mem_memRead;
+assign o_dmem_wen   = ex_mem_valid && ex_mem_memWrite;
 
 // ============================================================
 // Sequential logic: PC + pipeline regs
@@ -755,14 +755,15 @@ assign o_retire_next_pc = mem_wb_next_pc;
 wire [4:0] id_rs1_actual = (format[4] || format[5]) ? 5'd0 : rs1;
 wire [4:0] id_rs2_actual = (format[0] || format[2] || format[3]) ? rs2 : 5'd0;
 
-// Hazard detection unit
+// Hazard detection unit - only check when IF/ID has a valid instruction
+// Also gate with valid signals from EX and MEM stages
 hazard_unit hazard (
-    .i_id_rs1(id_rs1_actual),
-    .i_id_rs2(id_rs2_actual),
-    .i_ex_rd(id_ex_rd),
-    .i_ex_regWrite(id_ex_regWrite),
-    .i_mem_rd(ex_mem_rd),
-    .i_mem_regWrite(ex_mem_regWrite),
+    .i_id_rs1(if_id_valid ? id_rs1_actual : 5'd0),
+    .i_id_rs2(if_id_valid ? id_rs2_actual : 5'd0),
+    .i_ex_rd(id_ex_valid ? id_ex_rd : 5'd0),
+    .i_ex_regWrite(id_ex_valid && id_ex_regWrite),
+    .i_mem_rd(ex_mem_valid ? ex_mem_rd : 5'd0),
+    .i_mem_regWrite(ex_mem_valid && ex_mem_regWrite),
     .o_stall(stall)
 );
 

@@ -143,7 +143,7 @@ module hart_tb ();
                     run = 0;
             end
 
-            if (cycles > 40000) begin
+            if (cycles > 1000) begin
                 $display("Program did not halt after 10000 cycles, aborting.");
                 run = 0;
             end

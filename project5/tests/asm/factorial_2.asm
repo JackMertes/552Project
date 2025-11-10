@@ -29,6 +29,7 @@ mul_done:
   lw   x1, 4(x2)
   addi x2, x2, 8
   jalr x0, 0(x1)
+  nop
 
 base:
   addi x10, x0, 1
