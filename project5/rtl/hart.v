@@ -751,7 +751,7 @@ hazard_unit hazard (
     .i_ex_regWrite(id_ex_regWrite),
     .i_mem_rd(ex_mem_rd),
     .i_mem_regWrite(ex_mem_regWrite),
-    .o_stall(stall),
+    .o_stall(stall)
 );
 
 endmodule
