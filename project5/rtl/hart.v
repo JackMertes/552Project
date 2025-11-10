@@ -268,6 +268,8 @@ reg [ 3:0] mem_wb_dmem_mask;
 reg [31:0] mem_wb_dmem_wdata;
 reg [31:0] mem_wb_load_data;
 
+wire stall;
+
 // ============================================================
 // ID stage: instruction fields and control
 // ============================================================
@@ -573,6 +575,8 @@ always @(posedge i_clk) begin
             pc <= ex_next_pc;
             pc_fetch <= ex_next_pc;
             fetch_ready <= 1'b0;  // Mark next fetch as invalid since we're changing course
+        end else if (stall) begin
+            pc <= pc;           // Hold PC steady during stall
         end else begin
             pc_fetch <= pc;       // Track current PC for fetch
             pc <= pc_next;        // Normal PC increment
@@ -589,30 +593,55 @@ always @(posedge i_clk) begin
         // ----------------------------------------------------
         // ID/EX
         // ----------------------------------------------------
-        id_ex_pc       <= if_id_pc;
-        id_ex_rs1_data <= rs1_data;
-        id_ex_rs2_data <= rs2_data;
-        id_ex_rs1      <= rs1;
-        id_ex_rs2      <= rs2;
-        id_ex_rd       <= rd;
-        id_ex_imm      <= immediate;
-        id_ex_funct3   <= funct3;
-        id_ex_funct7   <= funct7;
-        id_ex_opcode   <= opcode;
-        id_ex_format   <= format;
-        id_ex_branch   <= branch;
-        id_ex_jalr     <= jalr;
-        id_ex_memRead  <= memRead;
-        id_ex_memToReg <= memToReg;
-        id_ex_memWrite <= memWrite;
-        id_ex_aluSrc   <= aluSrc;
-        id_ex_regWrite <= regWrite;
-        id_ex_jump     <= jump;
-        id_ex_lui      <= lui;
-        id_ex_aluOp    <= aluOp;
-        id_ex_valid    <= if_id_valid;
-        id_ex_inst     <= if_id_inst;
-
+        if (stall) begin
+            // Hold ID/EX steady during stall
+            id_ex_pc       <= id_ex_pc;
+            id_ex_rs1_data <= id_ex_rs1_data;
+            id_ex_rs2_data <= id_ex_rs2_data;
+            id_ex_rs1      <= id_ex_rs1;
+            id_ex_rs2      <= id_ex_rs2;
+            id_ex_rd       <= id_ex_rd;
+            id_ex_imm      <= id_ex_imm;
+            id_ex_funct3   <= id_ex_funct3;
+            id_ex_funct7   <= id_ex_funct7;
+            id_ex_opcode   <= id_ex_opcode;
+            id_ex_format   <= id_ex_format;
+            id_ex_branch   <= id_ex_branch;
+            id_ex_jalr     <= id_ex_jalr;
+            id_ex_memRead  <= id_ex_memRead;
+            id_ex_memToReg <= id_ex_memToReg;
+            id_ex_memWrite <= id_ex_memWrite;
+            id_ex_aluSrc   <= id_ex_aluSrc;
+            id_ex_regWrite <= id_ex_regWrite;
+            id_ex_jump     <= id_ex_jump;
+            id_ex_lui      <= id_ex_lui;
+            id_ex_aluOp    <= id_ex_aluOp;
+            // Keep valid and inst steady during stall
+        end else begin
+            id_ex_pc       <= if_id_pc;
+            id_ex_rs1_data <= rs1_data;
+            id_ex_rs2_data <= rs2_data;
+            id_ex_rs1      <= rs1;
+            id_ex_rs2      <= rs2;
+            id_ex_rd       <= rd;
+            id_ex_imm      <= immediate;
+            id_ex_funct3   <= funct3;
+            id_ex_funct7   <= funct7;
+            id_ex_opcode   <= opcode;
+            id_ex_format   <= format;
+            id_ex_branch   <= branch;
+            id_ex_jalr     <= jalr;
+            id_ex_memRead  <= memRead;
+            id_ex_memToReg <= memToReg;
+            id_ex_memWrite <= memWrite;
+            id_ex_aluSrc   <= aluSrc;
+            id_ex_regWrite <= regWrite;
+            id_ex_jump     <= jump;
+            id_ex_lui      <= lui;
+            id_ex_aluOp    <= aluOp;
+            id_ex_valid    <= if_id_valid;
+            id_ex_inst     <= if_id_inst;
+        end
         // ----------------------------------------------------
         // EX/MEM
         // ----------------------------------------------------
@@ -713,6 +742,17 @@ assign o_retire_dmem_wdata = mem_wb_dmem_wdata;
 
 assign o_retire_pc      = mem_wb_pc;
 assign o_retire_next_pc = mem_wb_next_pc;
+
+// Hazard detection unit
+hazard_unit hazard (
+    .i_id_rs1(if_id_rs1),
+    .i_id_rs2(if_id_rs2),
+    .i_ex_rd(id_ex_rd),
+    .i_ex_regWrite(id_ex_regWrite),
+    .i_mem_rd(ex_mem_rd),
+    .i_mem_regWrite(ex_mem_regWrite),
+    .o_stall(stall)
+);
 
 endmodule
 
