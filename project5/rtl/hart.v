@@ -576,7 +576,8 @@ always @(posedge i_clk) begin
             pc_fetch <= ex_next_pc;
             fetch_ready <= 1'b0;  // Mark next fetch as invalid since we're changing course
         end else if (stall) begin
-            pc <= pc;           // Hold PC steady during stall
+            pc <= pc_fetch;           // Hold PC steady during stall
+            fetch_ready <= 1'b0;     // Mark fetch as invalid during stall
         end else begin
             pc_fetch <= pc;       // Track current PC for fetch
             pc <= pc_next;        // Normal PC increment
@@ -586,36 +587,44 @@ always @(posedge i_clk) begin
         // ----------------------------------------------------
         // IF/ID
         // ----------------------------------------------------
-        if_id_pc    <= pc_fetch;  // Use the registered fetch PC
-        if_id_inst  <= i_imem_rdata;
-        if_id_valid <= fetch_ready;
+        if (!stall) begin
+            if_id_pc    <= pc_fetch;  // Use the registered fetch PC
+            if_id_inst  <= i_imem_rdata;
+            if_id_valid <= fetch_ready;
+        end else begin
+            // Hold IF/ID steady during stall
+            if_id_pc    <= if_id_pc;
+            if_id_inst  <= if_id_inst;
+            if_id_valid <= if_id_valid;
+        end
 
         // ----------------------------------------------------
         // ID/EX
         // ----------------------------------------------------
         if (stall) begin
-            // Hold ID/EX steady during stall
-            id_ex_pc       <= id_ex_pc;
-            id_ex_rs1_data <= id_ex_rs1_data;
-            id_ex_rs2_data <= id_ex_rs2_data;
-            id_ex_rs1      <= id_ex_rs1;
-            id_ex_rs2      <= id_ex_rs2;
-            id_ex_rd       <= id_ex_rd;
-            id_ex_imm      <= id_ex_imm;
-            id_ex_funct3   <= id_ex_funct3;
-            id_ex_funct7   <= id_ex_funct7;
-            id_ex_opcode   <= id_ex_opcode;
-            id_ex_format   <= id_ex_format;
-            id_ex_branch   <= id_ex_branch;
-            id_ex_jalr     <= id_ex_jalr;
-            id_ex_memRead  <= id_ex_memRead;
-            id_ex_memToReg <= id_ex_memToReg;
-            id_ex_memWrite <= id_ex_memWrite;
-            id_ex_aluSrc   <= id_ex_aluSrc;
-            id_ex_regWrite <= id_ex_regWrite;
-            id_ex_jump     <= id_ex_jump;
-            id_ex_lui      <= id_ex_lui;
-            id_ex_aluOp    <= id_ex_aluOp;
+            // Pass no-op to execute stage
+            id_ex_valid    <= 1'b0;
+            id_ex_pc       <= 32'b0;
+            id_ex_rs1_data <= 32'b0;
+            id_ex_rs2_data <= 32'b0;
+            id_ex_rs1      <= 5'b0;
+            id_ex_rs2      <= 5'b0;
+            id_ex_rd       <= 5'b0;
+            id_ex_imm      <= 32'b0;
+            id_ex_funct3   <= 3'b0;
+            id_ex_funct7   <= 3'b0;
+            id_ex_opcode   <= 3'b0;
+            id_ex_format   <= 6'b0;
+            id_ex_branch   <= 1'b0;
+            id_ex_jalr     <= 1'b0;
+            id_ex_memRead  <= 1'b0;
+            id_ex_memToReg <= 1'b0;
+            id_ex_memWrite <= 1'b0;
+            id_ex_aluSrc   <= 1'b0;
+            id_ex_regWrite <= 1'b0;
+            id_ex_jump     <= 1'b0;
+            id_ex_lui      <= 1'b0;
+            id_ex_aluOp    <= 3'b0;
             // Keep valid and inst steady during stall
         end else begin
             id_ex_pc       <= if_id_pc;
@@ -745,8 +754,8 @@ assign o_retire_next_pc = mem_wb_next_pc;
 
 // Hazard detection unit
 hazard_unit hazard (
-    .i_id_rs1(if_id_rs1),
-    .i_id_rs2(if_id_rs2),
+    .i_id_rs1(rs1),
+    .i_id_rs2(rs2),
     .i_ex_rd(id_ex_rd),
     .i_ex_regWrite(id_ex_regWrite),
     .i_mem_rd(ex_mem_rd),
