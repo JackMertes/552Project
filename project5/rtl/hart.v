@@ -176,9 +176,6 @@ reg [31:0] pc_fetch;  // The PC of the instruction currently being fetched
 // Track when first synchronous imem data is "real"
 reg fetch_ready;
 
-// Track if we flushed in the previous cycle (for extended flushing)
-reg prev_flush;
-
 assign o_imem_raddr = pc;
 
 // ============================================================
@@ -268,7 +265,6 @@ reg        mem_wb_memRead;
 reg        mem_wb_memWrite;
 reg [31:0] mem_wb_dmem_addr;
 reg [ 3:0] mem_wb_dmem_mask;
-reg [31:0] mem_wb_dmem_rdata;
 reg [31:0] mem_wb_dmem_wdata;
 reg [31:0] mem_wb_load_data;
 
@@ -295,58 +291,17 @@ wire        regWrite;
 wire        jump;
 wire [1:0]  aluOp;
 wire        lui;
+wire        auipc;    // Add auipc control signal
 wire [5:0]  format;
 
-// *** New: raw regfile outputs + bypassed versions ***
-wire [31:0] rs1_data_raw;
-wire [31:0] rs2_data_raw;
 wire [31:0] rs1_data;
 wire [31:0] rs2_data;
-
 wire [31:0] rd_data;
 wire [31:0] immediate;
 
 // ============================================================
-// Hazard Detection and Forwarding
-// ============================================================
-
-// Forwarding control signals
-wire [1:0] forward_a;  // 00: no forward, 01: forward from MEM, 10: forward from WB
-wire [1:0] forward_b;
-
-// Stall signal for load-use hazards
-wire stall;
-
-// Forwarding logic for rs1 (operand A)
-assign forward_a = 
-    // EX hazard: instruction in MEM stage writes to rs1 of instruction in EX
-    (ex_mem_valid && ex_mem_regWrite && (ex_mem_rd != 5'd0) && (ex_mem_rd == id_ex_rs1)) ? 2'b01 :
-    // MEM hazard: instruction in WB stage writes to rs1 of instruction in EX
-    (mem_wb_valid && mem_wb_regWrite && (mem_wb_rd != 5'd0) && (mem_wb_rd == id_ex_rs1) &&
-     !(ex_mem_valid && ex_mem_regWrite && (ex_mem_rd != 5'd0) && (ex_mem_rd == id_ex_rs1))) ? 2'b10 :
-    2'b00;
-
-// Forwarding logic for rs2 (operand B)
-assign forward_b = 
-    // EX hazard: instruction in MEM stage writes to rs2 of instruction in EX
-    (ex_mem_valid && ex_mem_regWrite && (ex_mem_rd != 5'd0) && (ex_mem_rd == id_ex_rs2)) ? 2'b01 :
-    // MEM hazard: instruction in WB stage writes to rs2 of instruction in EX
-    (mem_wb_valid && mem_wb_regWrite && (mem_wb_rd != 5'd0) && (mem_wb_rd == id_ex_rs2) &&
-     !(ex_mem_valid && ex_mem_regWrite && (ex_mem_rd != 5'd0) && (ex_mem_rd == id_ex_rs2))) ? 2'b10 :
-    2'b00;
-
-// Load-use hazard detection
-// Stall if instruction in EX is a load and instruction in ID uses the loaded value
-assign stall = id_ex_memRead && id_ex_valid && if_id_valid &&
-               ((id_ex_rd == rs1 && rs1 != 5'd0) || 
-                (id_ex_rd == rs2 && rs2 != 5'd0));
-
-// ============================================================
 // EX stage wires
 // ============================================================
-
-wire [31:0] ex_alu_op1_fwd;  // Forwarded operand 1
-wire [31:0] ex_alu_op2_fwd;  // Forwarded operand 2 (before aluSrc mux)
 
 wire [31:0] ex_alu_op2;
 wire [31:0] ex_alu_result;
@@ -361,35 +316,18 @@ wire        ex_arith;
 wire        ex_take_branch;
 
 // id_ex_pc contains the actual PC of the instruction (not PC+4)
+// For PC-relative control transfers (branches/JAL), the target is PC + imm
 wire [31:0] ex_pc_plus4  = id_ex_pc + 32'd4;
-
-// J-type immediate for JAL (sign-extended), decoded directly from id_ex_inst.
-// imm[20|10:1|11|19:12] << 1
-wire [31:0] id_ex_jal_imm = {
-    {11{id_ex_inst[31]}},   // sign extension
-    id_ex_inst[31],         // imm[20]
-    id_ex_inst[19:12],      // imm[19:12]
-    id_ex_inst[20],         // imm[11]
-    id_ex_inst[30:21],      // imm[10:1]
-    1'b0                    // imm[0] = 0
-};
-
-// For conditional branches: use B-type imm from id_ex_imm
-// For JAL: use J-type imm decoded above
-wire [31:0] ex_pc_branch =
-    id_ex_pc + (id_ex_jump ? id_ex_jal_imm : id_ex_imm);
-
-wire [31:0] ex_pc_jalr   = (ex_alu_op1_fwd + id_ex_imm) & ~32'b1;  // Use forwarded rs1 for JALR
+wire [31:0] ex_pc_branch = id_ex_pc + id_ex_imm;
+wire [31:0] ex_pc_jalr   = (id_ex_rs1_data + id_ex_imm) & ~32'b1;
 
 // Gate control with id_ex_valid
-// Branch-not-taken predictor: only flush when branch is actually taken
-wire ex_branch_taken = id_ex_valid && id_ex_branch && ex_take_branch;
+wire ex_branch_taken = id_ex_valid && ex_take_branch;
 wire ex_jump_taken   = id_ex_valid && id_ex_jump;
 wire ex_jalr_taken   = id_ex_valid && id_ex_jalr;
 
 // Combined "control transfer" signal for flushing
-// Also flush if we flushed in previous cycle (extended flush for synchronous memory)
-wire ex_ctrl_flush   = ex_branch_taken || ex_jump_taken || ex_jalr_taken || prev_flush;
+wire ex_ctrl_flush   = ex_branch_taken || ex_jump_taken || ex_jalr_taken;
 
 // For this instruction's architectural next PC (for retire)
 wire [31:0] ex_next_pc =
@@ -398,11 +336,9 @@ wire [31:0] ex_next_pc =
                                          ex_pc_plus4;
 
 // Global PC next (for fetch)
-assign pc_next =
-    ex_jalr_taken                      ? ex_pc_jalr   :
-    (ex_jump_taken || ex_branch_taken) ? ex_pc_branch :
-                                         (pc + 32'd4);
-
+// When a branch/jump/jalr is taken, use the calculated target address
+// Otherwise increment PC normally
+assign pc_next = ex_ctrl_flush ? ex_next_pc : (pc + 32'd4);
 
 // ============================================================
 // MEM stage wires
@@ -417,29 +353,35 @@ wire [31:0] load_data_mem;
 // Writeback mux (WB stage)
 // ============================================================
 
+// WB stage wires
+// ============================================================
+
+// Calculate load data in WB stage from registered dmem data
+wire [31:0] wb_load_data =
+    (mem_wb_funct3 == 3'b000) ? // LB
+        {{24{i_dmem_rdata[7 + 8*mem_wb_alu_result[1:0]]}},
+         i_dmem_rdata[8*mem_wb_alu_result[1:0]+:8]} :
+    (mem_wb_funct3 == 3'b001) ? // LH
+        (mem_wb_alu_result[1]
+            ? {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]}
+            : {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]}) :
+    (mem_wb_funct3 == 3'b100) ? // LBU
+        {24'b0, i_dmem_rdata[8*mem_wb_alu_result[1:0]+:8]} :
+    (mem_wb_funct3 == 3'b101) ? // LHU
+        (mem_wb_alu_result[1]
+            ? {16'b0, i_dmem_rdata[31:16]}
+            : {16'b0, i_dmem_rdata[15:0]}) :
+        i_dmem_rdata;
+
 wire [31:0] wb_int =
-    mem_wb_memToReg ? mem_wb_load_data :
-    mem_wb_lui      ? mem_wb_imm       :
+    mem_wb_memToReg ? wb_load_data :
+    mem_wb_lui      ? mem_wb_imm   :
                       mem_wb_alu_result;
 
 wire [31:0] rd_data_int =
     mem_wb_jump                   ? (mem_wb_pc + 32'd4)      :  // JAL
     (mem_wb_opcode == 7'b0010111) ? (mem_wb_pc + mem_wb_imm) :  // AUIPC
                                     wb_int;
-
-// Forwarding muxes for ALU operands (placed after rd_data_int declaration)
-// For MEM stage forwarding, need to handle LUI specially (uses imm, not ALU result)
-wire [31:0] ex_mem_fwd_data = ex_mem_lui ? ex_mem_imm : ex_mem_alu_result;
-
-assign ex_alu_op1_fwd = 
-    (forward_a == 2'b01) ? ex_mem_fwd_data :  // Forward from MEM (handles LUI)
-    (forward_a == 2'b10) ? rd_data_int :       // Forward from WB
-    id_ex_rs1_data;                             // No forwarding
-
-assign ex_alu_op2_fwd = 
-    (forward_b == 2'b01) ? ex_mem_fwd_data :  // Forward from MEM (handles LUI)
-    (forward_b == 2'b10) ? rd_data_int :       // Forward from WB
-    id_ex_rs2_data;                             // No forwarding
 
 // ============================================================
 // Modules
@@ -457,6 +399,7 @@ control_decode control (
     .o_jump   (jump),
     .o_aluOp  (aluOp),
     .o_lui    (lui),
+    .o_auipc  (auipc),
     .o_format (format)
 );
 
@@ -464,24 +407,13 @@ rf rf_inst (
     .i_clk      (i_clk),
     .i_rst      (i_rst),
     .i_rs1_raddr(rs1),
-    .o_rs1_rdata(rs1_data_raw),  // raw regfile read
+    .o_rs1_rdata(rs1_data),
     .i_rs2_raddr(rs2),
-    .o_rs2_rdata(rs2_data_raw),  // raw regfile read
+    .o_rs2_rdata(rs2_data),
     .i_rd_wen   (mem_wb_regWrite),
     .i_rd_waddr (mem_wb_rd),
     .i_rd_wdata (rd_data_int)
 );
-
-// *** New: WB→ID bypass to fix same-cycle RAW hazards ***
-assign rs1_data =
-    (mem_wb_valid && mem_wb_regWrite && (mem_wb_rd != 5'd0) && (mem_wb_rd == rs1))
-        ? rd_data_int
-        : rs1_data_raw;
-
-assign rs2_data =
-    (mem_wb_valid && mem_wb_regWrite && (mem_wb_rd != 5'd0) && (mem_wb_rd == rs2))
-        ? rd_data_int
-        : rs2_data_raw;
 
 imm imm_inst (
     .i_inst   (curr_instruction),
@@ -499,14 +431,14 @@ alu_decode alu_dec (
     .o_arith  (ex_arith)
 );
 
-assign ex_alu_op2 = id_ex_aluSrc ? id_ex_imm : ex_alu_op2_fwd;
+assign ex_alu_op2 = id_ex_aluSrc ? id_ex_imm : id_ex_rs2_data;
 
 alu alu_inst (
     .i_opsel   (ex_opsel),
     .i_sub     (ex_sub),
     .i_unsigned(ex_unsigned),
     .i_arith   (ex_arith),
-    .i_op1     (ex_alu_op1_fwd),  // Use forwarded operand
+    .i_op1     (id_ex_rs1_data),
     .i_op2     (ex_alu_op2),
     .o_result  (ex_alu_result),
     .o_eq      (ex_alu_eq),
@@ -543,65 +475,11 @@ assign dmem_mask =
         (4'b0011 << {ex_mem_alu_result[1], 1'b0}) :
         4'b1111; // LW/SW
 
-assign load_data_mem =
-    (ex_mem_funct3 == 3'b000) ? // LB
-        {{24{i_dmem_rdata[7 + 8*ex_mem_alu_result[1:0]]}},
-         i_dmem_rdata[8*ex_mem_alu_result[1:0]+:8]} :
-    (ex_mem_funct3 == 3'b001) ? // LH
-        (ex_mem_alu_result[1]
-            ? {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]}
-            : {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]}) :
-    (ex_mem_funct3 == 3'b100) ? // LBU
-        {24'b0, i_dmem_rdata[8*ex_mem_alu_result[1:0]+:8]} :
-    (ex_mem_funct3 == 3'b101) ? // LHU
-        (ex_mem_alu_result[1]
-            ? {16'b0, i_dmem_rdata[31:16]}
-            : {16'b0, i_dmem_rdata[15:0]}) :
-        i_dmem_rdata;
-
-// Store-to-load forwarding: if there's a store in WB stage and a load in MEM stage
-// to the same address, forward the store data instead of using memory data.
-// We forward if the addresses match AND all bytes being loaded were written by the store
-// (i.e., the load mask is a subset of the store mask).
-wire mem_store_to_load_fwd = 
-    ex_mem_memRead && mem_wb_memWrite && 
-    (dmem_addr == mem_wb_dmem_addr) &&
-    ((dmem_mask & mem_wb_dmem_mask) == dmem_mask);  // All loaded bytes were written
-
-// Extract the actual bytes that were written based on the mask
-// Memory only stores the masked bytes, so we need to reconstruct what memory contains
-wire [31:0] forwarded_raw_data = 
-    {mem_wb_dmem_mask[3] ? mem_wb_dmem_wdata[31:24] : 8'h00,
-     mem_wb_dmem_mask[2] ? mem_wb_dmem_wdata[23:16] : 8'h00,
-     mem_wb_dmem_mask[1] ? mem_wb_dmem_wdata[15:8]  : 8'h00,
-     mem_wb_dmem_mask[0] ? mem_wb_dmem_wdata[7:0]   : 8'h00};
-
-// Apply same load extraction logic to forwarded data
-wire [31:0] load_data_fwd =
-    (ex_mem_funct3 == 3'b000) ? // LB
-        {{24{forwarded_raw_data[7 + 8*ex_mem_alu_result[1:0]]}},
-         forwarded_raw_data[8*ex_mem_alu_result[1:0]+:8]} :
-    (ex_mem_funct3 == 3'b001) ? // LH
-        (ex_mem_alu_result[1]
-            ? {{16{forwarded_raw_data[31]}}, forwarded_raw_data[31:16]}
-            : {{16{forwarded_raw_data[15]}}, forwarded_raw_data[15:0]}) :
-    (ex_mem_funct3 == 3'b100) ? // LBU
-        {24'b0, forwarded_raw_data[8*ex_mem_alu_result[1:0]+:8]} :
-    (ex_mem_funct3 == 3'b101) ? // LHU
-        (ex_mem_alu_result[1]
-            ? {16'b0, forwarded_raw_data[31:16]}
-            : {16'b0, forwarded_raw_data[15:0]}) :
-        forwarded_raw_data;
-
-// Select between forwarded and memory data
-wire [31:0] load_data_raw = mem_store_to_load_fwd ? forwarded_raw_data : i_dmem_rdata;
-wire [31:0] load_data_final = mem_store_to_load_fwd ? load_data_fwd : load_data_mem;
-
 assign o_dmem_addr  = dmem_addr;
 assign o_dmem_wdata = dmem_wdata;
 assign o_dmem_mask  = dmem_mask;
-assign o_dmem_ren   = ex_mem_memRead && ex_mem_valid;
-assign o_dmem_wen   = ex_mem_memWrite && ex_mem_valid;
+assign o_dmem_ren   = ex_mem_memRead;
+assign o_dmem_wen   = ex_mem_memWrite;
 
 // ============================================================
 // Sequential logic: PC + pipeline regs
@@ -612,7 +490,6 @@ always @(posedge i_clk) begin
         pc           <= RESET_ADDR;
         pc_fetch     <= RESET_ADDR;
         fetch_ready  <= 1'b0;
-        prev_flush   <= 1'b0;
 
         if_id_valid  <= 1'b0;
         id_ex_valid  <= 1'b0;
@@ -687,91 +564,54 @@ always @(posedge i_clk) begin
         mem_wb_memWrite <= 1'b0;
         mem_wb_dmem_addr<= 32'd0;
         mem_wb_dmem_mask<= 4'd0;
-        mem_wb_dmem_rdata<=32'd0;
         mem_wb_dmem_wdata<=32'd0;
-        mem_wb_load_data<=32'd0;
 
     end else begin
         // PC update - pc_fetch tracks the address we're fetching from this cycle
-        // Only update if not stalling
-        if (!stall) begin
-            pc_fetch <= pc;  // Register the current PC (address being fetched)
-            pc <= pc_next;   // Update PC for next cycle
-        end
-
-        // After first cycle, imem output is valid
-        fetch_ready <= 1'b1;
-
-        // Track if we're flushing this cycle (for extended flush next cycle)
-        prev_flush <= (ex_branch_taken || ex_jump_taken || ex_jalr_taken);
-
-        // ----------------------------------------------------
-        // IF/ID - Stall on load-use hazard, flush on control transfer
-        // Priority: flush > stall > normal update
-        // ----------------------------------------------------
-        if (ex_ctrl_flush && !stall) begin
-            // On control transfer, invalidate the wrong-path instruction
-            // This kills the instruction that was just fetched (which is on wrong path)
-            if_id_valid <= 1'b0;
-            if_id_inst  <= 32'h00000013;  // NOP (ADDI x0, x0, 0)
-            if_id_pc    <= 32'd0;
-        end else if (!stall) begin
-            if_id_pc    <= pc_fetch;  // Use the registered fetch PC
-            if_id_inst  <= i_imem_rdata;
-            if_id_valid <= fetch_ready;
-        end
-        // If stalling, IF/ID keeps its current values (no <= assignment needed)
-
-        // ----------------------------------------------------
-        // ID/EX - Insert bubble (nop) on stall or control transfer
-        // NOTE: When flushing, we need to invalidate the instruction moving
-        // from ID to EX, as it's on the wrong path.
-        // ALSO: If there's already a branch/jump in EX that's about to execute,
-        // we should NOT let another branch/jump enter EX from ID, as this can
-        // cause issues with back-to-back control transfers.
-        // ----------------------------------------------------
-        if (ex_ctrl_flush || stall) begin
-            // Insert a bubble (nop) - invalidate the instruction completely
-            id_ex_valid    <= 1'b0;
-            id_ex_regWrite <= 1'b0;
-            id_ex_memRead  <= 1'b0;
-            id_ex_memWrite <= 1'b0;
-            id_ex_branch   <= 1'b0;
-            id_ex_jump     <= 1'b0;
-            id_ex_jalr     <= 1'b0;
-            id_ex_lui      <= 1'b0;
-            // Zero out addresses to prevent spurious forwarding
-            id_ex_rd       <= 5'd0;
-            id_ex_rs1      <= 5'd0;
-            id_ex_rs2      <= 5'd0;
-            // Clear PC and instruction for clarity in debug
-            id_ex_pc       <= 32'd0;
-            id_ex_inst     <= 32'd0;
+        if (ex_ctrl_flush) begin
+            // On control transfer, update both PC and pc_fetch to target
+            pc <= ex_next_pc;
+            pc_fetch <= ex_next_pc;
+            fetch_ready <= 1'b0;  // Mark next fetch as invalid since we're changing course
         end else begin
-            id_ex_pc       <= if_id_pc;
-            id_ex_rs1_data <= rs1_data;
-            id_ex_rs2_data <= rs2_data;
-            id_ex_rs1      <= rs1;
-            id_ex_rs2      <= rs2;
-            id_ex_rd       <= rd;
-            id_ex_imm      <= immediate;
-            id_ex_funct3   <= funct3;
-            id_ex_funct7   <= funct7;
-            id_ex_opcode   <= opcode;
-            id_ex_format   <= format;
-            id_ex_branch   <= branch;
-            id_ex_jalr     <= jalr;
-            id_ex_memRead  <= memRead;
-            id_ex_memToReg <= memToReg;
-            id_ex_memWrite <= memWrite;
-            id_ex_aluSrc   <= aluSrc;
-            id_ex_regWrite <= regWrite;
-            id_ex_jump     <= jump;
-            id_ex_lui      <= lui;
-            id_ex_aluOp    <= aluOp;
-            id_ex_valid    <= if_id_valid;
-            id_ex_inst     <= if_id_inst;
+            pc_fetch <= pc;       // Track current PC for fetch
+            pc <= pc_next;        // Normal PC increment
+            fetch_ready <= 1'b1;  // Normal fetch is valid
         end
+
+        // ----------------------------------------------------
+        // IF/ID
+        // ----------------------------------------------------
+        if_id_pc    <= pc_fetch;  // Use the registered fetch PC
+        if_id_inst  <= i_imem_rdata;
+        if_id_valid <= fetch_ready;
+
+        // ----------------------------------------------------
+        // ID/EX
+        // ----------------------------------------------------
+        id_ex_pc       <= if_id_pc;
+        id_ex_rs1_data <= rs1_data;
+        id_ex_rs2_data <= rs2_data;
+        id_ex_rs1      <= rs1;
+        id_ex_rs2      <= rs2;
+        id_ex_rd       <= rd;
+        id_ex_imm      <= immediate;
+        id_ex_funct3   <= funct3;
+        id_ex_funct7   <= funct7;
+        id_ex_opcode   <= opcode;
+        id_ex_format   <= format;
+        id_ex_branch   <= branch;
+        id_ex_jalr     <= jalr;
+        id_ex_memRead  <= memRead;
+        id_ex_memToReg <= memToReg;
+        id_ex_memWrite <= memWrite;
+        id_ex_aluSrc   <= aluSrc;
+        id_ex_regWrite <= regWrite;
+        id_ex_jump     <= jump;
+        id_ex_lui      <= lui;
+        id_ex_aluOp    <= aluOp;
+        id_ex_valid    <= if_id_valid;
+        id_ex_inst     <= if_id_inst;
 
         // ----------------------------------------------------
         // EX/MEM
@@ -779,8 +619,8 @@ always @(posedge i_clk) begin
         ex_mem_pc         <= id_ex_pc;
         ex_mem_next_pc    <= ex_next_pc;
         ex_mem_alu_result <= ex_alu_result;
-        ex_mem_rs1_data   <= ex_alu_op1_fwd;  // Use forwarded value for retire trace
-        ex_mem_rs2_data   <= ex_alu_op2_fwd;  // Use forwarded value for stores and retire trace
+        ex_mem_rs1_data   <= id_ex_rs1_data;
+        ex_mem_rs2_data   <= id_ex_rs2_data;
         ex_mem_rs1        <= id_ex_rs1;
         ex_mem_rs2        <= id_ex_rs2;
         ex_mem_rd         <= id_ex_rd;
@@ -824,9 +664,16 @@ always @(posedge i_clk) begin
         mem_wb_memWrite   <= ex_mem_memWrite;
         mem_wb_dmem_addr  <= dmem_addr;
         mem_wb_dmem_mask  <= dmem_mask;
-        mem_wb_dmem_rdata <= load_data_raw;    // Raw data (with forwarding, before extension)
         mem_wb_dmem_wdata <= dmem_wdata;
-        mem_wb_load_data  <= load_data_final;  // Processed data (with sign/zero extension)
+
+        // ----------------------------------------------------
+        // CONTROL-FLOW FLUSH (branches/jumps/jalr)
+        // ----------------------------------------------------
+        if (ex_ctrl_flush) begin
+            // Kill younger instructions in IF and ID so there are no delay slots
+            if_id_valid <= 1'b0;
+            id_ex_valid <= 1'b0;
+        end
     end
 end
 
@@ -861,7 +708,7 @@ assign o_retire_dmem_addr  = mem_wb_dmem_addr;
 assign o_retire_dmem_mask  = mem_wb_dmem_mask;
 assign o_retire_dmem_ren   = mem_wb_memRead;
 assign o_retire_dmem_wen   = mem_wb_memWrite;
-assign o_retire_dmem_rdata = mem_wb_dmem_rdata;  // Raw data (with forwarding, before extension)
+assign o_retire_dmem_rdata = i_dmem_rdata;
 assign o_retire_dmem_wdata = mem_wb_dmem_wdata;
 
 assign o_retire_pc      = mem_wb_pc;
