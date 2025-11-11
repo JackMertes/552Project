@@ -317,6 +317,9 @@ wire        ex_arith;
 
 wire        ex_take_branch;
 
+wire [31:0] forwarding_rs1_data;
+wire [31:0] forwarding_rs2_data;
+
 // id_ex_pc contains the actual PC of the instruction (not PC+4)
 // For PC-relative control transfers (branches/JAL), the target is PC + imm
 wire [31:0] ex_pc_plus4  = id_ex_pc + 32'd4;
@@ -385,6 +388,16 @@ wire [31:0] rd_data_int =
     (mem_wb_opcode == 7'b0010111) ? (mem_wb_pc + mem_wb_imm) :  // AUIPC
                                     wb_int;
 
+wire [31:0] ex_mem_wb_int =
+    ex_mem_memToReg ? 32'd0 :
+    ex_mem_lui      ? ex_mem_imm :
+                      ex_mem_alu_result;
+
+wire [31:0] ex_mem_wb_data =
+    ex_mem_jump                   ? (ex_mem_pc + 32'd4)      :  // JAL/JALR
+    (ex_mem_opcode == 7'b0010111) ? (ex_mem_pc + ex_mem_imm) :  // AUIPC
+                                    ex_mem_wb_int;
+
 // ============================================================
 // Modules
 // ============================================================
@@ -433,21 +446,20 @@ alu_decode alu_dec (
     .o_arith  (ex_arith)
 );
 
-wire [31:0] forwarding_rs1_data;
-wire [31:0] forwarding_rs2_data;
-
 assign ex_alu_op2 = id_ex_aluSrc ? id_ex_imm : forwarding_rs2_data;
 
 forwarding forwarding_inst(
     .i_ex_mem_regWrite(ex_mem_regWrite),
     .i_mem_wb_regWrite(mem_wb_regWrite),
+    .i_ex_mem_valid(ex_mem_valid),
+    .i_mem_wb_valid(mem_wb_valid),
     .i_ex_mem_rd(ex_mem_rd),
     .i_mem_wb_rd(mem_wb_rd),
     .i_id_ex_rs1(id_ex_rs1),
     .i_id_ex_rs2(id_ex_rs2),
     .i_id_ex_rs1_data(id_ex_rs1_data),
     .i_id_ex_rs2_data(id_ex_rs2_data),
-    .i_ex_mem_alu_result(ex_mem_alu_result),
+    .i_ex_mem_alu_result(ex_mem_wb_data),
     .i_rd_data_int(rd_data_int),
     .o_op1(forwarding_rs1_data),
     .o_op2(forwarding_rs2_data)
@@ -630,8 +642,8 @@ always @(posedge i_clk) begin
             id_ex_rd       <= 5'b0;
             id_ex_imm      <= 32'b0;
             id_ex_funct3   <= 3'b0;
-            id_ex_funct7   <= 3'b0;
-            id_ex_opcode   <= 3'b0;
+            id_ex_funct7   <= 7'b0;
+            id_ex_opcode   <= 7'b0;
             id_ex_format   <= 6'b0;
             id_ex_branch   <= 1'b0;
             id_ex_jalr     <= 1'b0;
@@ -642,7 +654,7 @@ always @(posedge i_clk) begin
             id_ex_regWrite <= 1'b0;
             id_ex_jump     <= 1'b0;
             id_ex_lui      <= 1'b0;
-            id_ex_aluOp    <= 3'b0;
+            id_ex_aluOp    <= 2'b0;
             // Keep valid and inst steady during stall
         end else begin
             id_ex_pc       <= if_id_pc;
