@@ -1,30 +1,23 @@
-C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/control_decode.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/control_decode.v
-Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
--- Compiling module control_decode
-
-Top level modules:
-	control_decode
-
-} {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/rf.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/rf.v
+C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/rf.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/rf.v
 Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
 -- Compiling module rf
 
 Top level modules:
 	rf
 
-} {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/hazard_unit.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/hazard_unit.v
+} {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/control_decode.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/control_decode.v
 Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
--- Compiling module hazard_unit
+-- Compiling module control_decode
 
 Top level modules:
-	hazard_unit
+	control_decode
 
-} {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/branch_decode.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/branch_decode.v
+} {} {}} C:/Users/Jakob/skewl/552Project/project5/rtl/forwarding.v {1 {vlog -work work -stats=none C:/Users/Jakob/skewl/552Project/project5/rtl/forwarding.v
 Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
--- Compiling module branch_decode
+-- Compiling module forwarding
 
 Top level modules:
-	branch_decode
+	forwarding
 
 } {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/ALU_decode.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/ALU_decode.v
 Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
@@ -33,12 +26,19 @@ Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 
 Top level modules:
 	alu_decode
 
-} {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/tb/tb.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/tb/tb.v
+} {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/branch_decode.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/branch_decode.v
 Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
--- Compiling module hart_tb
+-- Compiling module branch_decode
 
 Top level modules:
-	hart_tb
+	branch_decode
+
+} {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/hazard_unit.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/hazard_unit.v
+Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
+-- Compiling module hazard_unit
+
+Top level modules:
+	hazard_unit
 
 } {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/alu.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/alu.v
 Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
@@ -47,6 +47,13 @@ Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 
 
 Top level modules:
 	alu
+
+} {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/tb/tb.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/tb/tb.v
+Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
+-- Compiling module hart_tb
+
+Top level modules:
+	hart_tb
 
 } {} {}} C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/imm.v {1 {vlog -work work -stats=none C:/Users/ryank/Desktop/ECE552/group/552Project/project5/rtl/imm.v
 Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020

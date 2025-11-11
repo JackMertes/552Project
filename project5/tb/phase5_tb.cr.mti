@@ -1,0 +1,58 @@
+C:/Users/Jakob/skewl/552Project/project5/rtl/alu.v {1 {vlog -work work -stats=none C:/Users/Jakob/skewl/552Project/project5/rtl/alu.v
+Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
+-- Compiling module alu
+-- Compiling module barrel_shifter32
+
+Top level modules:
+	alu
+
+} {} {}} C:/Users/Jakob/skewl/552Project/project5/tb/tb.v {1 {vlog -work work -stats=none C:/Users/Jakob/skewl/552Project/project5/tb/tb.v
+Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
+-- Compiling module hart_tb
+
+Top level modules:
+	hart_tb
+
+} {} {}} C:/Users/Jakob/skewl/552Project/project5/rtl/forwarding.v {1 {vlog -work work -stats=none C:/Users/Jakob/skewl/552Project/project5/rtl/forwarding.v
+Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
+-- Compiling module forwarding
+
+Top level modules:
+	forwarding
+
+} {} {}} C:/Users/Jakob/skewl/552Project/project5/rtl/imm.v {1 {vlog -work work -stats=none C:/Users/Jakob/skewl/552Project/project5/rtl/imm.v
+Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
+-- Compiling module imm
+
+Top level modules:
+	imm
+
+} {} {}} C:/Users/Jakob/skewl/552Project/project5/rtl/rf.v {1 {vlog -work work -stats=none C:/Users/Jakob/skewl/552Project/project5/rtl/rf.v
+Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
+-- Compiling module rf
+
+Top level modules:
+	rf
+
+} {} {}} C:/Users/Jakob/skewl/552Project/project5/rtl/control_decode.v {1 {vlog -work work -stats=none C:/Users/Jakob/skewl/552Project/project5/rtl/control_decode.v
+Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
+-- Compiling module control_decode
+
+Top level modules:
+	control_decode
+
+} {} {}} C:/Users/Jakob/skewl/552Project/project5/rtl/branch_decode.v {1 {vlog -work work -stats=none C:/Users/Jakob/skewl/552Project/project5/rtl/branch_decode.v
+Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
+-- Compiling module branch_decode
+
+Top level modules:
+	branch_decode
+
+} {} {}} C:/Users/Jakob/skewl/552Project/project5/rtl/ALU_decode.v {1 {vlog -work work -stats=none C:/Users/Jakob/skewl/552Project/project5/rtl/ALU_decode.v
+Model Technology ModelSim - Intel FPGA Edition vlog 2020.1 Compiler 2020.02 Feb 28 2020
+-- Compiling module alu_decode
+
+Top level modules:
+	alu_decode
+
+} {} {}}
