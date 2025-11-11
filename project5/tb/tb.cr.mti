@@ -1,0 +1,65 @@
+C:/Users/jland/skewl/552Project/project5/rtl/control_decode.v {1 {vlog -work work -stats=none C:/Users/jland/skewl/552Project/project5/rtl/control_decode.v
+Model Technology ModelSim - Intel FPGA Edition vlog 10.5b Compiler 2016.10 Oct  5 2016
+-- Compiling module control_decode
+
+Top level modules:
+	control_decode
+
+} {} {}} C:/Users/jland/skewl/552Project/project5/rtl/rf.v {1 {vlog -work work -stats=none C:/Users/jland/skewl/552Project/project5/rtl/rf.v
+Model Technology ModelSim - Intel FPGA Edition vlog 10.5b Compiler 2016.10 Oct  5 2016
+-- Compiling module rf
+
+Top level modules:
+	rf
+
+} {} {}} C:/Users/jland/skewl/552Project/project5/rtl/hazard_unit.v {1 {vlog -work work -stats=none C:/Users/jland/skewl/552Project/project5/rtl/hazard_unit.v
+Model Technology ModelSim - Intel FPGA Edition vlog 10.5b Compiler 2016.10 Oct  5 2016
+-- Compiling module hazard_unit
+
+Top level modules:
+	hazard_unit
+
+} {} {}} C:/Users/jland/skewl/552Project/project5/rtl/branch_decode.v {1 {vlog -work work -stats=none C:/Users/jland/skewl/552Project/project5/rtl/branch_decode.v
+Model Technology ModelSim - Intel FPGA Edition vlog 10.5b Compiler 2016.10 Oct  5 2016
+-- Compiling module branch_decode
+
+Top level modules:
+	branch_decode
+
+} {} {}} C:/Users/jland/skewl/552Project/project5/rtl/ALU_decode.v {1 {vlog -work work -stats=none C:/Users/jland/skewl/552Project/project5/rtl/ALU_decode.v
+Model Technology ModelSim - Intel FPGA Edition vlog 10.5b Compiler 2016.10 Oct  5 2016
+-- Compiling module alu_decode
+
+Top level modules:
+	alu_decode
+
+} {} {}} C:/Users/jland/skewl/552Project/project5/rtl/alu.v {1 {vlog -work work -stats=none C:/Users/jland/skewl/552Project/project5/rtl/alu.v
+Model Technology ModelSim - Intel FPGA Edition vlog 10.5b Compiler 2016.10 Oct  5 2016
+-- Compiling module alu
+-- Compiling module barrel_shifter32
+
+Top level modules:
+	alu
+
+} {} {}} C:/Users/jland/skewl/552Project/project5/rtl/imm.v {1 {vlog -work work -stats=none C:/Users/jland/skewl/552Project/project5/rtl/imm.v
+Model Technology ModelSim - Intel FPGA Edition vlog 10.5b Compiler 2016.10 Oct  5 2016
+-- Compiling module imm
+
+Top level modules:
+	imm
+
+} {} {}} C:/Users/jland/skewl/552Project/project5/rtl/hart.v {1 {vlog -work work -stats=none C:/Users/jland/skewl/552Project/project5/rtl/hart.v
+Model Technology ModelSim - Intel FPGA Edition vlog 10.5b Compiler 2016.10 Oct  5 2016
+-- Compiling module hart
+
+Top level modules:
+	hart
+
+} {} {}} C:/Users/jland/skewl/552Project/project5/rtl/forwarding.v {1 {vlog -work work -stats=none C:/Users/jland/skewl/552Project/project5/rtl/forwarding.v
+Model Technology ModelSim - Intel FPGA Edition vlog 10.5b Compiler 2016.10 Oct  5 2016
+-- Compiling module forwarding
+
+Top level modules:
+	forwarding
+
+} {} {}}
