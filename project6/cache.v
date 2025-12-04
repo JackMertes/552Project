@@ -90,8 +90,6 @@ module cache (
     reg [T - 1:0] tags1  [DEPTH - 1:0];
     reg [1:0] valid [DEPTH - 1:0];
     reg       lru   [DEPTH - 1:0];
+ 
 
-    // Fill in your implementation here.
 endmodule
-
-`default_nettype wire
