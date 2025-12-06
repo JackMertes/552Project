@@ -90,6 +90,218 @@ module cache (
     reg [T - 1:0] tags1  [DEPTH - 1:0];
     reg [1:0] valid [DEPTH - 1:0];
     reg       lru   [DEPTH - 1:0];
- 
+
+    localparam IDLE = 2'b00;
+    localparam ALLOCATE = 2'b01;
+    localparam WRITE_THROUGH = 2'b10;
+    reg [1:0] state, next_state;
+
+    // Address breakdown
+    // For a 16-byte cache line with 32-bit words:
+    // Bits [1:0]: byte offset within word (always 00 for aligned accesses)
+    // Bits [3:2]: word index within cache line (0-3 for 4 words)
+    // Bits [8:4]: set index (5 bits for 32 sets)
+    // Bits [31:9]: tag (23 bits)
+    wire [S-1:0] addr_index  = i_req_addr[O+S-1:O];        // bits [8:4]
+    wire [T-1:0] addr_tag    = i_req_addr[31:O+S];         // bits [31:9]
+    wire [1:0]   addr_word   = i_req_addr[3:2];            // bits [3:2] - word within line
+
+    // Hit detection
+    wire way0_valid = valid[addr_index][0];
+    wire way1_valid = valid[addr_index][1];
+    wire hit0 = way0_valid && (tags0[addr_index] == addr_tag);
+    wire hit1 = way1_valid && (tags1[addr_index] == addr_tag);
+    wire hit = hit0 || hit1;
+
+    // Data reading
+    wire [31:0] read_data_way0 = datas0[addr_index][addr_word];
+    wire [31:0] read_data_way1 = datas1[addr_index][addr_word];
+    wire [31:0] hit_data = hit0 ? read_data_way0 : read_data_way1;
+
+    // Request tracking
+    wire req = i_req_ren || i_req_wen;
+    wire miss = req && !hit;
+    wire write_hit = i_req_wen && hit;
+
+    // Mask expansion for byte-level writes
+    wire [31:0] req_mask_expanded = { {8{i_req_mask[3]}}, {8{i_req_mask[2]}}, {8{i_req_mask[1]}}, {8{i_req_mask[0]}} };
+
+    // Write data merging
+    wire [31:0] merged_write_data = (hit_data & ~req_mask_expanded) | (i_req_wdata & req_mask_expanded);
+
+    // Allocate state registers
+    reg [T-1:0] alloc_tag;
+    reg [S-1:0] alloc_index;
+    reg [2:0] alloc_req_cnt;
+    reg [2:0] alloc_fill_cnt;
+    reg alloc_way;
+    reg [31:0] alloc_addr;
+    reg alloc_write;
+    reg [3:0] alloc_mask;
+    reg [31:0] alloc_wdata;
+
+    // Wires for write-back logic
+    wire [1:0] write_word = alloc_addr[O-1:2];
+    wire [31:0] mask_exp = { {8{alloc_mask[3]}}, {8{alloc_mask[2]}}, {8{alloc_mask[1]}}, {8{alloc_mask[0]}} };
+    wire [31:0] write_current_data = (alloc_way == 1'b0) ? datas0[alloc_index][write_word] : datas1[alloc_index][write_word];
+    wire [31:0] write_new_data = (write_current_data & ~mask_exp) | (alloc_wdata & mask_exp);
+
+    // Output assignments
+    assign o_busy = (state != IDLE) || miss;
+    assign o_res_rdata = hit_data;
+
+    // Memory interface
+    assign o_mem_addr = (state == ALLOCATE) ? {alloc_tag, alloc_index, alloc_req_cnt[1:0], 2'b00} :
+                        (state == WRITE_THROUGH) ? alloc_addr :
+                        (state == IDLE && write_hit) ? i_req_addr :
+                        32'h00000000;
+    assign o_mem_ren = (state == ALLOCATE) && i_mem_ready && (alloc_req_cnt < D);
+    assign o_mem_wen = ((state == WRITE_THROUGH) && i_mem_ready) || (state == IDLE && write_hit && i_mem_ready);
+    assign o_mem_wdata = (state == WRITE_THROUGH) ? alloc_wdata : merged_write_data;
+
+    // State machine
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            state <= IDLE;
+        end else begin
+            state <= next_state;
+        end
+    end
+
+    always @(*) begin
+        next_state = state;
+        case (state)
+            IDLE: begin
+                if (miss) begin
+                    next_state = ALLOCATE;
+                end else if (write_hit) begin
+                    // Write-through: write to memory on write hit
+                    if (i_mem_ready) begin
+                        next_state = IDLE;
+                    end else begin
+                        next_state = IDLE; // Stay in IDLE but keep busy high
+                    end
+                end
+            end
+            ALLOCATE: begin
+                if (i_mem_valid && alloc_fill_cnt == 3'd3) begin
+                    if (alloc_write) begin
+                        next_state = WRITE_THROUGH;
+                    end else begin
+                        next_state = IDLE;
+                    end
+                end
+            end
+            WRITE_THROUGH: begin
+                if (i_mem_ready) begin
+                    next_state = IDLE;
+                end
+            end
+            default: next_state = IDLE;
+        endcase
+    end
+
+    // Allocation logic
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            alloc_tag <= {T{1'b0}};
+            alloc_index <= {S{1'b0}};
+            alloc_req_cnt <= 3'd0;
+            alloc_fill_cnt <= 3'd0;
+            alloc_way <= 1'b0;
+            alloc_addr <= 32'd0;
+            alloc_write <= 1'b0;
+            alloc_mask <= 4'b0000;
+            alloc_wdata <= 32'd0;
+        end else begin
+            case (state)
+                IDLE: begin
+                    if (miss) begin
+                        alloc_tag <= addr_tag;
+                        alloc_index <= addr_index;
+                        alloc_req_cnt <= 3'd0;
+                        alloc_fill_cnt <= 3'd0;
+                        // Choose way: if one invalid, use it; else use NMRU
+                        alloc_way <= (!way0_valid) ? 1'b0 : 
+                                     (!way1_valid) ? 1'b1 : 
+                                     ~lru[addr_index];
+                        alloc_write <= i_req_wen;
+                        alloc_mask <= i_req_mask;
+                        alloc_wdata <= i_req_wdata;
+                        alloc_addr <= i_req_addr;
+                    end
+                end
+                ALLOCATE: begin
+                    if (i_mem_ready && alloc_req_cnt < D) begin
+                        alloc_req_cnt <= alloc_req_cnt + 3'd1;
+                    end
+                    if (i_mem_valid && alloc_fill_cnt < D) begin
+                        alloc_fill_cnt <= alloc_fill_cnt + 3'd1;
+                    end
+                end
+            endcase
+        end
+    end
+
+    // Cache update logic
+    integer i, j;
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            for (i = 0; i < DEPTH; i = i + 1) begin
+                for (j = 0; j < D; j = j + 1) begin
+                    datas0[i][j] <= 32'd0;
+                    datas1[i][j] <= 32'd0;
+                end
+                tags0[i] <= {T{1'b0}};
+                tags1[i] <= {T{1'b0}};
+                valid[i] <= 2'b00;
+                lru[i] <= 1'b0;
+            end
+        end else begin
+            // Handle cache writes (both hits and after allocation)
+            if (state == IDLE && hit) begin
+                // Update LRU on any hit
+                lru[addr_index] <= hit0 ? 1'b0 : 1'b1;
+                
+                // Handle writes on hit (write to cache immediately, memory write handled by write-through)
+                if (i_req_wen) begin
+                    if (hit0) begin
+                        datas0[addr_index][addr_word] <= merged_write_data;
+                    end else begin
+                        datas1[addr_index][addr_word] <= merged_write_data;
+                    end
+                end
+            end
+            
+            // Handle cache allocation (fill cache line from memory)
+            if (state == ALLOCATE && i_mem_valid) begin
+                if (alloc_way == 1'b0) begin
+                    datas0[alloc_index][alloc_fill_cnt] <= i_mem_rdata;
+                    if (alloc_fill_cnt == 3'd3) begin
+                        tags0[alloc_index] <= alloc_tag;
+                        valid[alloc_index][0] <= 1'b1;
+                        lru[alloc_index] <= 1'b0;
+                    end
+                end else begin
+                    datas1[alloc_index][alloc_fill_cnt] <= i_mem_rdata;
+                    if (alloc_fill_cnt == 3'd3) begin
+                        tags1[alloc_index] <= alloc_tag;
+                        valid[alloc_index][1] <= 1'b1;
+                        lru[alloc_index] <= 1'b1;
+                    end
+                end
+            end
+            
+            // Handle write after allocation (write-allocate: write to cache after allocating line)
+            if (state == WRITE_THROUGH && i_mem_ready) begin
+                // Apply the write with masking to the newly allocated cache line
+                if (alloc_way == 1'b0) begin
+                    datas0[alloc_index][write_word] <= write_new_data;
+                end else begin
+                    datas1[alloc_index][write_word] <= write_new_data;
+                end
+            end
+        end
+    end
 
 endmodule
