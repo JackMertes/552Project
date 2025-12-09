@@ -143,39 +143,78 @@ module hart #(
     ,`RVFI_OUTPUTS,
 `endif
 );
-// ============================================================
+
 // PC and IF stage
-// ============================================================
 
 reg [31:0] pc;
 wire [31:0] pc_next;
-reg [31:0] pc_fetch;  // The PC of the outstanding instruction fetch
 
-// Memory stall signals
-reg imem_req_pending;
-reg dmem_req_pending;
-reg imem_stale_pending;  // Set after flush if there was a request in flight
-reg [31:0] dmem_rdata_reg;  // Latch load data when it arrives
-reg dmem_data_ready;  // Set one cycle after data arrives (when dmem_rdata_reg is valid)
+// Cache instances
 
-// Buffer for imem responses that arrive during dmem_stall
-reg        imem_buf_valid;
-reg [31:0] imem_buf_pc;
-reg [31:0] imem_buf_inst;
+// Instruction cache interface signals
+wire        ic_busy;
+wire [31:0] ic_rdata;
+wire        ic_req_ren;
+reg         ic_miss_pending;
 
-wire imem_stall = (imem_req_pending || imem_stale_pending) && !i_imem_valid && !imem_buf_valid;
-// Stall immediately when issuing a load request (not one cycle later)
-wire dmem_starting = o_dmem_ren && i_dmem_ready && !dmem_req_pending;
-// Stall when: (request pending and data not ready) OR (starting new request)
-wire dmem_stall = (dmem_req_pending && !dmem_data_ready) || dmem_starting;
+// Data cache interface signals
+wire        dc_busy;
+wire [31:0] dc_rdata;
+wire        dc_req_ren;
+wire        dc_req_wen;
+reg         dc_miss_pending;
 
-assign o_imem_raddr = pc;
-// Only issue a new imem request when none is outstanding, not flushing, and no stale response pending.
-assign o_imem_ren   = !imem_req_pending && !ex_ctrl_flush && !imem_stale_pending && !imem_buf_valid;
+cache icache (
+    .i_clk        (i_clk),
+    .i_rst        (i_rst),
+    .i_mem_ready  (i_imem_ready),
+    .o_mem_addr   (o_imem_raddr),
+    .o_mem_ren    (o_imem_ren),
+    .o_mem_wen    (),
+    .o_mem_wdata  (),
+    .i_mem_rdata  (i_imem_rdata),
+    .i_mem_valid  (i_imem_valid),
+    .o_busy       (ic_busy),
+    .i_req_addr   (pc),
+    .i_req_ren    (ic_req_ren),
+    .i_req_wen    (1'b0),
+    .i_req_mask   (4'b1111),
+    .i_req_wdata  (32'b0),
+    .o_res_rdata  (ic_rdata)
+);
 
-// ============================================================
+cache dcache (
+    .i_clk        (i_clk),
+    .i_rst        (i_rst),
+    .i_mem_ready  (i_dmem_ready),
+    .o_mem_addr   (o_dmem_addr),
+    .o_mem_ren    (o_dmem_ren),
+    .o_mem_wen    (o_dmem_wen),
+    .o_mem_wdata  (o_dmem_wdata),
+    .i_mem_rdata  (i_dmem_rdata),
+    .i_mem_valid  (i_dmem_valid),
+    .o_busy       (dc_busy),
+    .i_req_addr   (dmem_addr),
+    .i_req_ren    (dc_req_ren),
+    .i_req_wen    (dc_req_wen),
+    .i_req_mask   (dmem_mask),
+    .i_req_wdata  (dmem_wdata),
+    .o_res_rdata  (dc_rdata)
+);
+
+// Cache does word-level memory access, so mask is always full word
+assign o_dmem_mask = 4'b1111;
+
+// Stall signals - use registered miss_pending to avoid combinational loops
+wire imem_stall = ic_busy || ic_miss_pending;
+wire dmem_stall = dc_busy || dc_miss_pending;
+
+// Request signals to caches
+assign ic_req_ren = !ic_miss_pending && !ex_ctrl_flush && !dmem_stall;
+assign dc_req_ren = !dc_miss_pending && ex_mem_valid && ex_mem_memRead;
+assign dc_req_wen = !dc_miss_pending && ex_mem_valid && ex_mem_memWrite;
+
 // Pipeline registers
-// ============================================================
 
 // IF/ID
 reg [31:0] if_id_pc;
@@ -253,6 +292,7 @@ reg        mem_wb_jump;
 reg        mem_wb_lui;
 
 reg        mem_wb_valid;
+reg        mem_wb_retired;
 reg [31:0] mem_wb_inst;
 
 // dmem retire info in MEM/WB
@@ -266,10 +306,7 @@ reg [31:0] mem_wb_load_data;
 wire hazard_stall;
 wire stall = hazard_stall || imem_stall || dmem_stall;
 
-// ============================================================
 // ID stage: instruction fields and control
-// ============================================================
-
 wire [31:0] curr_instruction = if_id_inst;
 
 wire [6:0] opcode  = curr_instruction[6:0];
@@ -297,10 +334,7 @@ wire [31:0] rs2_data;
 wire [31:0] rd_data;
 wire [31:0] immediate;
 
-// ============================================================
 // EX stage wires
-// ============================================================
-
 wire [31:0] ex_alu_op2;
 wire [31:0] ex_alu_result;
 wire        ex_alu_eq;
@@ -316,8 +350,6 @@ wire        ex_take_branch;
 wire [31:0] forwarding_rs1_data;
 wire [31:0] forwarding_rs2_data;
 
-// id_ex_pc contains the actual PC of the instruction (not PC+4)
-// For PC-relative control transfers (branches/JAL), the target is PC + imm
 wire [31:0] ex_pc_plus4  = id_ex_pc + 32'd4;
 wire [31:0] ex_pc_branch = id_ex_pc + id_ex_imm;
 wire [31:0] ex_pc_jalr   = (forwarding_rs1_data + id_ex_imm) & ~32'b1;
@@ -327,7 +359,7 @@ wire ex_branch_taken = id_ex_valid && ex_take_branch;
 wire ex_jump_taken   = id_ex_valid && id_ex_jump;
 wire ex_jalr_taken   = id_ex_valid && id_ex_jalr;
 
-// Combined "control transfer" signal for flushing
+// Combined control transfer signal for flushing
 wire ex_ctrl_flush   = ex_branch_taken || ex_jump_taken || ex_jalr_taken;
 
 // For this instruction's architectural next PC (for retire)
@@ -341,38 +373,30 @@ wire [31:0] ex_next_pc =
 // Otherwise increment PC normally
 assign pc_next = ex_ctrl_flush ? ex_next_pc : (pc + 32'd4);
 
-// ============================================================
 // MEM stage wires
-// ============================================================
-
 wire [31:0] dmem_addr;
 wire [31:0] dmem_wdata;
 wire [ 3:0] dmem_mask;
 wire [31:0] load_data_mem;
 
-// ============================================================
-// Writeback mux (WB stage)
-// ============================================================
+// WB stage
 
-// WB stage wires
-// ============================================================
-
-// Calculate load data in WB stage from registered dmem data
+// Calculate load data in WB stage from pipeline register (captured from cache in MEM)
 wire [31:0] wb_load_data =
     (mem_wb_funct3 == 3'b000) ? // LB
-        {{24{dmem_rdata_reg[7 + 8*mem_wb_alu_result[1:0]]}},
-         dmem_rdata_reg[8*mem_wb_alu_result[1:0]+:8]} :
+        {{24{mem_wb_load_data[7 + 8*mem_wb_alu_result[1:0]]}},
+         mem_wb_load_data[8*mem_wb_alu_result[1:0]+:8]} :
     (mem_wb_funct3 == 3'b001) ? // LH
         (mem_wb_alu_result[1]
-            ? {{16{dmem_rdata_reg[31]}}, dmem_rdata_reg[31:16]}
-            : {{16{dmem_rdata_reg[15]}}, dmem_rdata_reg[15:0]}) :
+            ? {{16{mem_wb_load_data[31]}}, mem_wb_load_data[31:16]}
+            : {{16{mem_wb_load_data[15]}}, mem_wb_load_data[15:0]}) :
     (mem_wb_funct3 == 3'b100) ? // LBU
-        {24'b0, dmem_rdata_reg[8*mem_wb_alu_result[1:0]+:8]} :
+        {24'b0, mem_wb_load_data[8*mem_wb_alu_result[1:0]+:8]} :
     (mem_wb_funct3 == 3'b101) ? // LHU
         (mem_wb_alu_result[1]
-            ? {16'b0, dmem_rdata_reg[31:16]}
-            : {16'b0, dmem_rdata_reg[15:0]}) :
-        dmem_rdata_reg;
+            ? {16'b0, mem_wb_load_data[31:16]}
+            : {16'b0, mem_wb_load_data[15:0]}) :
+        mem_wb_load_data;
 
 wire [31:0] wb_int =
     mem_wb_memToReg ? wb_load_data :
@@ -393,10 +417,6 @@ wire [31:0] ex_mem_wb_data =
     ex_mem_jump                   ? (ex_mem_pc + 32'd4)      :  // JAL/JALR
     (ex_mem_opcode == 7'b0010111) ? (ex_mem_pc + ex_mem_imm) :  // AUIPC
                                     ex_mem_wb_int;
-
-// ============================================================
-// Modules
-// ============================================================
 
 control_decode control (
     .i_opcode (opcode),
@@ -481,10 +501,7 @@ branch_decode branch_dec_inst (
     .o_take_branch(ex_take_branch)
 );
 
-// ============================================================
 // Data memory (MEM) combinational logic
-// ============================================================
-
 assign dmem_addr = {ex_mem_alu_result[31:2], 2'b00};
 
 assign dmem_wdata =
@@ -503,29 +520,12 @@ assign dmem_mask =
         (4'b0011 << {ex_mem_alu_result[1], 1'b0}) :
         4'b1111; // LW/SW
 
-assign o_dmem_addr  = dmem_addr;
-assign o_dmem_wdata = dmem_wdata;
-assign o_dmem_mask  = dmem_mask;
-// Only assert ren when starting a new load (not already pending/ready)
-assign o_dmem_ren   = ex_mem_valid && ex_mem_memRead && !dmem_req_pending && !dmem_data_ready;
-assign o_dmem_wen   = ex_mem_valid && ex_mem_memWrite;
-
-// ============================================================
 // Sequential logic: PC + pipeline regs
-// ============================================================
-
 always @(posedge i_clk) begin
     if (i_rst) begin
         pc           <= RESET_ADDR;
-        pc_fetch     <= RESET_ADDR;
-        imem_req_pending <= 1'b0;
-        imem_stale_pending <= 1'b0;
-        dmem_req_pending <= 1'b0;
-        dmem_rdata_reg <= 32'd0;
-        dmem_data_ready <= 1'b0;
-        imem_buf_valid <= 1'b0;
-        imem_buf_pc    <= 32'd0;
-        imem_buf_inst  <= 32'd0;
+        ic_miss_pending <= 1'b0;
+        dc_miss_pending <= 1'b0;
 
         if_id_valid  <= 1'b0;
         id_ex_valid  <= 1'b0;
@@ -595,98 +595,61 @@ always @(posedge i_clk) begin
         mem_wb_jump     <= 1'b0;
         mem_wb_lui      <= 1'b0;
         mem_wb_inst     <= 32'd0;
+        mem_wb_retired  <= 1'b0;
 
         mem_wb_memRead  <= 1'b0;
         mem_wb_memWrite <= 1'b0;
         mem_wb_dmem_addr<= 32'd0;
         mem_wb_dmem_mask<= 4'd0;
         mem_wb_dmem_wdata<=32'd0;
+        mem_wb_load_data<= 32'd0;
 
     end else begin
-        // Track instruction memory requests (only one at a time)
-        // Also track if we might have a stale response coming after a flush
+        // Track cache miss states
+        // Set pending when we request and cache signals busy
+        // Clear pending when cache is no longer busy (miss serviced)
+        if (ic_req_ren && ic_busy) begin
+            ic_miss_pending <= 1'b1;
+        end else if (!ic_busy) begin
+            ic_miss_pending <= 1'b0;
+        end
+
+        if ((dc_req_ren || dc_req_wen) && dc_busy) begin
+            dc_miss_pending <= 1'b1;
+        end else if (!dc_busy) begin
+            dc_miss_pending <= 1'b0;
+        end
+
+        // Clear icache pending on flush (we'll fetch from new address)
         if (ex_ctrl_flush) begin
-            // On flush, if there was a pending request or buffered inst, mark stale
-            imem_stale_pending <= imem_req_pending || imem_buf_valid;
-            imem_req_pending <= 1'b0;
-            imem_buf_valid <= 1'b0;
-        end else if (i_imem_valid && imem_stale_pending) begin
-            // Stale response arrived, discard it
-            imem_stale_pending <= 1'b0;
-        end else if (i_imem_valid && imem_req_pending) begin
-            // Valid response for current request
-            imem_req_pending <= 1'b0;
-            // If we're in dmem_stall, buffer the response for later
-            if (dmem_stall) begin
-                imem_buf_valid <= 1'b1;
-                imem_buf_pc    <= pc_fetch;
-                imem_buf_inst  <= i_imem_rdata;
-            end
-        end else if (o_imem_ren && i_imem_ready && !imem_req_pending && !imem_stale_pending) begin
-            // Start new request (only if no stale response pending)
-            imem_req_pending <= 1'b1;
+            ic_miss_pending <= 1'b0;
         end
 
-        // Clear imem buffer when consumed (not in dmem_stall and not in other stall)
-        if (!dmem_stall && !stall && imem_buf_valid) begin
-            imem_buf_valid <= 1'b0;
-        end
-
-        // Track data memory requests (loads only - stores are fire-and-forget)
-        // i_dmem_valid is only asserted for reads, not writes
-        if (i_dmem_valid) begin
-            // Load completed - latch the data, signal ready next cycle
-            dmem_req_pending <= 1'b0;
-            dmem_rdata_reg <= i_dmem_rdata;
-            dmem_data_ready <= 1'b1;
-        end else if (o_dmem_ren && i_dmem_ready && !dmem_req_pending) begin
-            // Start new load request - clear data_ready from previous load
-            dmem_req_pending <= 1'b1;
-            dmem_data_ready <= 1'b0;
-        end else if (dmem_data_ready && !dmem_stall) begin
-            // Data was used (stall ended), clear ready flag
-            dmem_data_ready <= 1'b0;
-        end
-
-        // PC update - only start new fetch when no outstanding fetch
+        // PC update - with caches, advance PC when not stalling
         if (ex_ctrl_flush) begin
             pc <= ex_next_pc;
-            pc_fetch <= ex_next_pc;
-        end else if (stall) begin
-            pc <= pc;
-            pc_fetch <= pc_fetch;
-        end else if (o_imem_ren && i_imem_ready && !imem_req_pending) begin
-            pc_fetch <= pc;
+        end else if (!stall) begin
             pc <= pc_next;
         end
 
-        // ----------------------------------------------------
-        // IF/ID
-        // ----------------------------------------------------
-        if (stall) begin
+        // IF/ID - with cache, instruction is available combinationally on hit
+        if (ex_ctrl_flush) begin
+            // Flush IF/ID on control transfer
+            if_id_valid <= 1'b0;
+        end else if (stall) begin
             // Hold IF/ID steady during stall
             if_id_pc    <= if_id_pc;
             if_id_inst  <= if_id_inst;
             if_id_valid <= if_id_valid;
         end else begin
-            // Use buffered instruction if available (from dmem_stall period)
-            if (imem_buf_valid) begin
-                if_id_pc    <= imem_buf_pc;
-                if_id_inst  <= imem_buf_inst;
-                if_id_valid <= 1'b1;
-            end else if (i_imem_valid && imem_req_pending && !imem_stale_pending) begin
-                // Capture directly from memory response
-                if_id_pc    <= pc_fetch;
-                if_id_inst  <= i_imem_rdata;
-                if_id_valid <= 1'b1;
-            end else begin
-                if_id_valid <= 1'b0;
-            end
+            // Cache provides instruction combinationally (on hit)
+            // ic_busy will be high on miss, causing stall
+            if_id_pc    <= pc;
+            if_id_inst  <= ic_rdata;
+            if_id_valid <= 1'b1;
         end
 
-        // ----------------------------------------------------
         // ID/EX
-        // ----------------------------------------------------
         if (dmem_stall) begin
             // Hold ID/EX during dmem stall (preserve instruction in pipeline)
             id_ex_valid    <= id_ex_valid;
@@ -762,9 +725,8 @@ always @(posedge i_clk) begin
             id_ex_valid    <= if_id_valid;
             id_ex_inst     <= if_id_inst;
         end
-        // ----------------------------------------------------
+
         // EX/MEM
-        // ----------------------------------------------------
         if (dmem_stall) begin
             // Hold EX/MEM steady during dmem stall (waiting for load data)
             ex_mem_pc         <= ex_mem_pc;
@@ -810,11 +772,10 @@ always @(posedge i_clk) begin
             ex_mem_inst       <= id_ex_inst;
         end
 
-        // ----------------------------------------------------
         // MEM/WB
-        // ----------------------------------------------------
         if (dmem_stall) begin
-            // Hold MEM/WB steady during dmem stall (waiting for load data)
+            // During dmem_stall, EX/MEM holds the memory instruction.
+            // MEM/WB holds for forwarding, but mark as retired to prevent re-retirement.
             mem_wb_pc         <= mem_wb_pc;
             mem_wb_next_pc    <= mem_wb_next_pc;
             mem_wb_alu_result <= mem_wb_alu_result;
@@ -832,12 +793,14 @@ always @(posedge i_clk) begin
             mem_wb_jump       <= mem_wb_jump;
             mem_wb_lui        <= mem_wb_lui;
             mem_wb_valid      <= mem_wb_valid;
+            mem_wb_retired    <= 1'b1;
             mem_wb_inst       <= mem_wb_inst;
             mem_wb_memRead    <= mem_wb_memRead;
             mem_wb_memWrite   <= mem_wb_memWrite;
             mem_wb_dmem_addr  <= mem_wb_dmem_addr;
             mem_wb_dmem_mask  <= mem_wb_dmem_mask;
             mem_wb_dmem_wdata <= mem_wb_dmem_wdata;
+            mem_wb_load_data  <= mem_wb_load_data;
         end else begin
             mem_wb_pc         <= ex_mem_pc;
             mem_wb_next_pc    <= ex_mem_next_pc;
@@ -856,6 +819,7 @@ always @(posedge i_clk) begin
             mem_wb_jump       <= ex_mem_jump;
             mem_wb_lui        <= ex_mem_lui;
             mem_wb_valid      <= ex_mem_valid;
+            mem_wb_retired    <= 1'b0;
             mem_wb_inst       <= ex_mem_inst;
 
             // dmem retire info and load data
@@ -864,27 +828,26 @@ always @(posedge i_clk) begin
             mem_wb_dmem_addr  <= dmem_addr;
             mem_wb_dmem_mask  <= dmem_mask;
             mem_wb_dmem_wdata <= dmem_wdata;
+            mem_wb_load_data  <= dc_rdata;
         end
 
-        // ----------------------------------------------------
-        // CONTROL-FLOW FLUSH (branches/jumps/jalr)
-        // ----------------------------------------------------
         if (ex_ctrl_flush) begin
-            // Kill younger instructions in IF and ID so there are no delay slots
+            // Kill younger instructions in IF/ID
             if_id_valid <= 1'b0;
-            id_ex_valid <= 1'b0;
+            // Only invalidate ID/EX if not stalled for dmem
+
+            if (!dmem_stall) begin
+                id_ex_valid <= 1'b0;
+            end
         end
     end
 end
 
-// ============================================================
 // Retire interface (WB stage)
-// ============================================================
-
-assign o_retire_valid = mem_wb_valid;
+assign o_retire_valid = mem_wb_valid && !mem_wb_retired;
 assign o_retire_inst  = mem_wb_inst;
 assign o_retire_trap  = 1'b0;
-assign o_retire_halt  = mem_wb_valid && (mem_wb_inst == 32'h0010_0073);
+assign o_retire_halt  = mem_wb_valid && !mem_wb_retired && (mem_wb_inst == 32'h0010_0073);
 
 assign o_retire_rs1_raddr =
     (mem_wb_opcode == 7'b1101111) ? mem_wb_rs1 :
@@ -908,7 +871,7 @@ assign o_retire_dmem_addr  = mem_wb_dmem_addr;
 assign o_retire_dmem_mask  = mem_wb_dmem_mask;
 assign o_retire_dmem_ren   = mem_wb_memRead;
 assign o_retire_dmem_wen   = mem_wb_memWrite;
-assign o_retire_dmem_rdata = dmem_rdata_reg;
+assign o_retire_dmem_rdata = mem_wb_load_data;
 assign o_retire_dmem_wdata = mem_wb_dmem_wdata;
 
 assign o_retire_pc      = mem_wb_pc;
@@ -917,8 +880,6 @@ assign o_retire_next_pc = mem_wb_next_pc;
 wire [4:0] id_rs1_actual = (format[4] || format[5]) ? 5'd0 : rs1;
 wire [4:0] id_rs2_actual = (format[0] || format[2] || format[3]) ? rs2 : 5'd0;
 
-// Hazard detection unit - only check when IF/ID has a valid instruction
-// Also gate with valid signals from EX and MEM stages
 hazard_unit hazard (
     .i_if_id_rs1(if_id_valid ? id_rs1_actual : 5'd0),
     .i_if_id_rs2(if_id_valid ? id_rs2_actual : 5'd0),
